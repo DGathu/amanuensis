@@ -24,3 +24,31 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Custom Scrollbar: White on Black */
+
+/* For WebKit browsers (Chrome, Safari, Edge) */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #000000; /* Pure black track */
+  border-left: 1px solid #171717; /* Matches neutral-900 border */
+}
+
+::-webkit-scrollbar-thumb {
+  background: #ffffff; /* Pure white thumb */
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #d4d4d4; /* Slightly dimmer on hover (neutral-300) */
+}
+
+/* For Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #ffffff #000000;
+}
