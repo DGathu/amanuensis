@@ -41,10 +41,14 @@ function injectUUIDs(data: any) {
 
   arraySections.forEach((section) => {
     if (Array.isArray(data[section])) {
-      data[section] = data[section].map((item: any) => ({
-        id: crypto.randomUUID(),
-        ...item,
-      }));
+      data[section] = data[section].map((item: any) => {
+        // Strip out the empty "id" from Gemini so it doesn't overwrite our UUID
+        const { id, ...rest } = item; 
+        return {
+          id: crypto.randomUUID(),
+          ...rest,
+        };
+      });
     }
   });
 

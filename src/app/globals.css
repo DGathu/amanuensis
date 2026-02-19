@@ -52,3 +52,36 @@ body {
   scrollbar-width: thin;
   scrollbar-color: #ffffff #000000;
 }
+
+/* --- A4 Page & Print Simulation --- */
+@page {
+  size: A4;
+  margin: 0;
+}
+
+@media print {
+  body {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    background: white;
+  }
+  
+  /* Hide sidebars and toolbars when printing */
+  aside, .no-print {
+    display: none !important;
+  }
+  
+  /* Remove shadow and padding constraints for actual print */
+  .a4-canvas {
+    box-shadow: none !important;
+    margin: 0 !important;
+    width: 210mm !important;
+    min-height: 297mm !important;
+  }
+
+  /* Prevent sections from awkwardly breaking in half across pages */
+  .prevent-break {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+}
