@@ -85,3 +85,12 @@ body {
     break-inside: avoid;
   }
 }
+
+@keyframes flashGreen {
+  0% { background-color: #bbf7d0; border-radius: 4px; padding: 2px 4px; }
+  100% { background-color: transparent; padding: 2px 4px; }
+}
+
+.flash-highlight {
+  animation: flashGreen 1.5s ease-out;
+}

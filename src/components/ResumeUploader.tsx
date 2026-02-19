@@ -31,6 +31,13 @@ export default function ResumeUploader() {
       }
 
       const parsedData = await response.json();
+      // Extract filename without .pdf
+      const fileName = file.name.replace(/\.[^/.]+$/, "");
+      
+      // Call the store functions
+      useResumeStore.getState().setDocumentTitle(fileName);
+      useResumeStore.getState().setResumeData(parsedData);
+      useResumeStore.getState().setIsEditing(true);
       
       // Update the global state with the extracted data
       setResumeData(parsedData);

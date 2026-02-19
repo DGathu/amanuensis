@@ -107,7 +107,7 @@ export async function POST(request: Request) {
 
     // 🔹 Prepare Gemini AI
     const model = genAI.getGenerativeModel({
-      model: "gemini-2.5-flash",
+      model: "gemini-2.5-flash-lite",
       generationConfig: {
         responseMimeType: "application/json",
         temperature: 0.2,
