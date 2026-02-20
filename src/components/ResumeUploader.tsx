@@ -1,16 +1,17 @@
 "use client";
 
 import React, { useState, useRef } from "react";
-import { Upload, Loader2 } from "lucide-react";
+import { ScrollText, Loader2 } from "lucide-react";
 import { useResumeStore } from "@/store/useResumeStore";
 import { useRouter } from "next/navigation";
 
 export default function ResumeUploader() {
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { setResumeData, setIsEditing } = useResumeStore();
-  const router = useRouter();
   
+  // Cleaned up destructuring
+  const { setResumeData, setIsEditing, setDocumentTitle, setDbId } = useResumeStore();
+  const router = useRouter();
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -31,25 +32,21 @@ export default function ResumeUploader() {
       }
 
       const parsedData = await response.json();
-      // Extract filename without .pdf
       const fileName = file.name.replace(/\.[^/.]+$/, "");
       
-      // Call the store functions
-      useResumeStore.getState().setDocumentTitle(fileName);
-      useResumeStore.getState().setResumeData(parsedData);
-      useResumeStore.getState().setIsEditing(true);
-      
-      // Update the global state with the extracted data
+      // Clean, single-pass state update
+      setDbId(null); // Ensure the app knows this is a brand new upload, not an overwrite
+      setDocumentTitle(fileName);
       setResumeData(parsedData);
       setIsEditing(true);
+      
       router.push("/editor");
       
     } catch (error) {
       console.error("Upload error:", error);
-      alert("Failed to parse the resume. Please try again.");
+      alert("The scribe failed to read the parchment. Please try again.");
     } finally {
       setIsUploading(false);
-      // Reset input so the user can upload the same file again if needed
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
@@ -57,7 +54,8 @@ export default function ResumeUploader() {
   };
 
   return (
-    <div className="mb-4">
+    // Removed the "mb-4" div wrapper to ensure perfect baseline alignment with its twin button
+    <>
       <input
         type="file"
         accept="application/pdf"
@@ -69,24 +67,24 @@ export default function ResumeUploader() {
       <button
         onClick={() => fileInputRef.current?.click()}
         disabled={isUploading}
-        className={`w-full flex items-center justify-center gap-2 py-2 px-4 rounded border transition ${
+        className={`w-full sm:w-auto flex items-center justify-center gap-3 px-8 h-12 rounded-sm text-sm font-serif tracking-wider uppercase transition shadow-inner whitespace-nowrap ${
           isUploading
-            ? "bg-neutral-800 border-neutral-700 text-neutral-400 cursor-not-allowed"
-            : "bg-neutral-900 border-neutral-700 hover:border-blue-500 hover:text-blue-400 text-neutral-300"
+            ? "bg-stone-900 border border-stone-800 text-stone-600 cursor-not-allowed"
+            : "bg-stone-900 hover:bg-stone-800 border border-amber-900/50 text-amber-500 hover:border-amber-500/80 hover:shadow-[0_0_15px_rgba(245,158,11,0.15)]"
         }`}
       >
         {isUploading ? (
           <>
-            <Loader2 className="w-4 h-4 animate-spin" />
-            <span>Parsing PDF...</span>
+            <Loader2 className="w-4 h-4 animate-spin text-amber-700" />
+            <span>Unrolling Scroll...</span>
           </>
         ) : (
           <>
-            <Upload className="w-4 h-4" />
-            <span className="text-sm font-semibold">Upload Existing Resume</span>
+            <ScrollText className="w-4 h-4" />
+            <span>Present Scroll</span>
           </>
         )}
       </button>
-    </div>
+    </>
   );
 }

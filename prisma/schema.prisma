@@ -1,5 +1,4 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
+// prisma/schema.prisma
 
 generator client {
   provider = "prisma-client-js"
@@ -9,33 +8,10 @@ datasource db {
   provider = "sqlite"
 }
 
-model User {
-  id        String    @id @default(cuid())
-  name      String?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  resumes   Resume[]
-}
-
 model Resume {
-  id        String    @id @default(cuid())
-  userId    String
-  title     String    @default("Untitled Resume")
-  isOriginal Boolean  @default(true) //True if uploaded, false if tailored by AI
-  content   String    //Store full resume as stringified object
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-
-  user           User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  jobDescriptions JobDescription[]  
-}
-
-model JobDescription {
-  id        String    @id @default(cuid())
-  resumeId  String    
-  title     String    // eg Frontend Engineer at Safaricom
-  content   String    // Pasted JD
-  createdAt DateTime  @default(now())
-
-  resume    Resume    @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+  id        String   @id @default(uuid())
+  title     String   @default("Untitled Document")
+  data      String   
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

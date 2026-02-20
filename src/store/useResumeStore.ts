@@ -25,6 +25,8 @@ export type AIOptimizationResult = {
 
 interface ResumeState {
   data: ResumeData;
+  dbId: string | null;
+  setDbId: (id: string | null) => void;
   documentTitle: string;
   setDocumentTitle: (title: string) => void;
   flashedId: string | null;
@@ -55,6 +57,8 @@ const initialData: ResumeData = {
 
 export const useResumeStore = create<ResumeState>((set) => ({
   data: initialData,
+  dbId: null,
+  setDbId: (id) => set({ dbId: id }),
   documentTitle: "Untitled Document",
   setDocumentTitle: (title) => set({ documentTitle: title }),
   

@@ -3,7 +3,15 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useResumeStore } from "@/store/useResumeStore";
-import { Plus, Trash2, X, Home, Loader2, Check } from "lucide-react";
+import { Plus, Trash2, X, Home, Loader2, Check, Save, AlertTriangle, Flame, Sparkles, Wand2 } from "lucide-react";
+
+type ModalConfig = {
+  isOpen: boolean;
+  type: "alert" | "success" | "confirm";
+  title: string;
+  message: string;
+  onConfirm?: () => void;
+};
 
 // --- HELPERS ---
 const RenderDescription = ({ text }: { text?: string }) => {
@@ -51,7 +59,7 @@ export default function EditorWorkspace() {
   const router = useRouter();
   
   const { 
-    data, isEditing, setIsEditing, documentTitle, setDocumentTitle, 
+    data, dbId, setDbId, isEditing, setIsEditing, documentTitle, setDocumentTitle, 
     aiSuggestions, setAiSuggestions, updatePersonalInfo, updateSummary, 
     addItem, updateItem, removeItem, flashedId, triggerFlash 
   } = useResumeStore();
@@ -66,19 +74,21 @@ export default function EditorWorkspace() {
 
   const aiResultsRef = useRef<HTMLDivElement>(null);
   const prevAiSuggestions = useRef(aiSuggestions);
+  const [isSaving, setIsSaving] = useState(false);
+  const [modal, setModal] = useState<ModalConfig>({ isOpen: false, type: "alert", title: "", message: "" });
+  const closeModal = () => setModal(prev => ({ ...prev, isOpen: false }));
+
+  // Shared thematic input class
+  const thematicInputClass = "w-full bg-stone-900/50 border border-stone-800 focus:border-amber-700/60 focus:ring-1 focus:ring-amber-700/30 text-stone-200 rounded-sm p-2.5 text-sm transition-all placeholder-stone-700 outline-none shadow-inner";
 
   useEffect(() => {
     if (!isEditing) router.push("/");
   }, [isEditing, router]);
 
-  // 🚀 FEATURE: SMART TELEPROMPTER SCROLLING
   useEffect(() => {
-    // 1. If we JUST generated new suggestions, scroll the Right Sidebar to the top of the AI block
     if (!prevAiSuggestions.current && aiSuggestions) {
       setTimeout(() => aiResultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
     }
-
-    // 2. Keep the top AI suggestion perfectly centered on the A4 Canvas
     if (aiSuggestions?.suggestedRewrites?.length && aiSuggestions.suggestedRewrites.length > 0) {
       const nextSuggestion = aiSuggestions.suggestedRewrites[0];
       const targetId = nextSuggestion.itemId || nextSuggestion.section;
@@ -87,14 +97,8 @@ export default function EditorWorkspace() {
         element.scrollIntoView({ behavior: "smooth", block: "center" });
       }
     }
-
     prevAiSuggestions.current = aiSuggestions;
   }, [aiSuggestions]);
-
-  const handleGoHome = () => {
-    setIsEditing(false);
-    router.push("/");
-  };
 
   const handleRunOptimization = async () => {
     setIsOptimizing(true);
@@ -108,14 +112,14 @@ export default function EditorWorkspace() {
       setAiSuggestions(await res.json());
     } catch (error) {
       console.error(error);
-      alert("Failed to run AI optimization.");
+      setModal({ isOpen: true, type: "alert", title: "Scribe Failed", message: "Failed to run AI optimization." });
     } finally {
       setIsOptimizing(false);
     }
   };
 
   const handleRunTailoring = async () => {
-    if (!jobDescription.trim()) return alert("Please paste a job description first.");
+    if (!jobDescription.trim()) return setModal({ isOpen: true, type: "alert", title: "Missing Decree", message: "Please paste a job description first." });
     setIsTailoring(true);
     setAiSuggestions(null); 
     try {
@@ -128,7 +132,7 @@ export default function EditorWorkspace() {
       setAiSuggestions(await res.json());
     } catch (error) {
       console.error(error);
-      alert("Failed to tailor resume.");
+      setModal({ isOpen: true, type: "alert", title: "Scribe Failed", message: "Failed to tailor the manuscript." });
     } finally {
       setIsTailoring(false);
     }
@@ -139,8 +143,6 @@ export default function EditorWorkspace() {
     const upperCheck = newTextStr.toUpperCase();
     const isDeletion = upperCheck === "REMOVE_ITEM" || upperCheck === "DELETE" || suggestion.field === "DELETE" || newTextStr === "";
 
-    // 🚀 FIX: STRICT SECTION NORMALIZATION
-    // Ensures case-sensitivity mismatches between Gemini and Zustand don't break the app
     const rawSection = (suggestion.section || "").trim().toLowerCase();
     let sectionKey = rawSection;
     if (rawSection === "personalinfo") sectionKey = "personalInfo";
@@ -150,25 +152,14 @@ export default function EditorWorkspace() {
     const itemId = (suggestion.itemId || "").trim();
     const fieldKey = (suggestion.field || "").trim();
 
-    // 🚀 FIX: ROBUST DELETION LOGIC
     if (isDeletion) {
-      if (sectionKey === "summary") {
-        updateSummary("");
-      } else if (sectionKey === "personalInfo" && fieldKey) {
-        updatePersonalInfo({ [fieldKey]: "" });
-      } else if (itemId) {
-        // AI explicitly wants to delete an entire array item (like an old job)
-        removeItem(sectionKey as any, itemId);
-      }
+      if (sectionKey === "summary") updateSummary("");
+      else if (sectionKey === "personalInfo" && fieldKey) updatePersonalInfo({ [fieldKey]: "" });
+      else if (itemId) removeItem(sectionKey as any, itemId);
     } else {
-      // Standard text update
-      if (sectionKey === "summary") {
-        updateSummary(newTextStr);
-      } else if (sectionKey === "personalInfo" && fieldKey) {
-        updatePersonalInfo({ [fieldKey]: newTextStr });
-      } else if (itemId && fieldKey) {
-        updateItem(sectionKey as any, itemId, { [fieldKey]: newTextStr });
-      }
+      if (sectionKey === "summary") updateSummary(newTextStr);
+      else if (sectionKey === "personalInfo" && fieldKey) updatePersonalInfo({ [fieldKey]: newTextStr });
+      else if (itemId && fieldKey) updateItem(sectionKey as any, itemId, { [fieldKey]: newTextStr });
     }
 
     triggerFlash(itemId || sectionKey);
@@ -186,7 +177,6 @@ export default function EditorWorkspace() {
   const handleDismissEdit = (index: number) => {
     const updatedSuggestions = { ...aiSuggestions! };
     updatedSuggestions.suggestedRewrites.splice(index, 1);
-    
     if (updatedSuggestions.suggestedRewrites.length === 0 && !updatedSuggestions.generalFeedback && !updatedSuggestions.matchStrategy) {
        setAiSuggestions(null);
     } else {
@@ -203,78 +193,158 @@ export default function EditorWorkspace() {
     setActiveModal(null);
   };
 
-  if (!isEditing) return <div className="h-screen w-full bg-neutral-950" />;
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+      const res = await fetch("/api/resumes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: dbId, title: documentTitle, data: data }),
+      });
+
+      if (!res.ok) throw new Error("Failed to save");
+
+      const savedResume = await res.json();
+      setDbId(savedResume.id); 
+      
+      setModal({ 
+        isOpen: true, type: "success", 
+        title: "Manuscript Bound", 
+        message: "Your parchment has been securely saved to the archives." 
+      });
+
+    } catch (error) {
+      console.error(error);
+      setModal({ 
+        isOpen: true, type: "alert", 
+        title: "Archive Failed", 
+        message: "Could not reach the database to save your progress." 
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  if (!isEditing) return <div className="h-screen w-full bg-stone-950" />;
 
   const activeModalConfig = ARRAY_SECTIONS.find(sec => sec.key === activeModal);
 
   return (
-    <div className="flex flex-col h-screen w-full bg-neutral-950 text-neutral-200 overflow-hidden font-sans">
+    <div className="h-screen w-full flex flex-col bg-stone-950 text-stone-300 font-sans overflow-hidden selection:bg-amber-900/50">
       
+      {/* --- CUSTOM MODAL OVERLAY --- */}
+      {modal.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-stone-900 border border-amber-900/50 p-6 sm:p-8 rounded-sm shadow-2xl max-w-md w-full relative overflow-hidden">
+            <div className={`absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent ${modal.type === "success" ? "via-emerald-600" : modal.type === "confirm" ? "via-red-600" : "via-amber-700"} to-transparent opacity-50`} />
+            
+            <div className="flex items-start gap-4 mb-6">
+              <div className="bg-stone-950 border border-stone-800 p-3 rounded-sm shadow-inner">
+                {modal.type === "success" ? <Check className="w-6 h-6 text-emerald-500" /> : 
+                 modal.type === "confirm" ? <Flame className="w-6 h-6 text-red-500" /> : 
+                 <AlertTriangle className="w-6 h-6 text-amber-500" />}
+              </div>
+              <div>
+                <h3 className="text-xl font-serif text-stone-100">{modal.title}</h3>
+                <p className="text-stone-400 text-sm mt-2 font-serif italic leading-relaxed">{modal.message}</p>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-4 mt-8">
+              <button onClick={closeModal} className="px-6 py-2 bg-stone-950 hover:bg-stone-800 border border-stone-800 hover:border-stone-700 text-stone-300 rounded-sm text-sm font-medium transition">
+                {modal.type === "confirm" ? "Cancel" : "Understood"}
+              </button>
+              {modal.type === "confirm" && (
+                <button onClick={modal.onConfirm} className="px-6 py-2 bg-red-950/40 hover:bg-red-900 border border-red-900/50 text-red-400 rounded-sm text-sm font-medium transition">
+                  Cast to Fire
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* TOP NAVBAR */}
-      <nav className="h-14 border-b border-neutral-800 bg-neutral-950 flex items-center px-4 shrink-0 z-20 shadow-sm justify-between">
+      <nav className="h-14 border-b border-stone-800 bg-stone-950 flex items-center px-4 shrink-0 z-20 shadow-sm justify-between">
         <div className="flex items-center gap-4">
-          <button onClick={handleGoHome} className="p-2 text-neutral-400 hover:text-white hover:bg-neutral-800 rounded-lg transition" title="Return to Dashboard">
+          <button onClick={() => router.push("/")} className="p-2 text-stone-500 hover:text-amber-500 hover:bg-stone-900 rounded-sm transition" title="Return to Archives">
             <Home className="w-5 h-5" />
           </button>
-          <div className="w-px h-6 bg-neutral-800" />
+          <div className="w-px h-6 bg-stone-800" />
           <input 
             type="text" 
             value={documentTitle} 
             onChange={(e) => setDocumentTitle(e.target.value)} 
-            className="bg-transparent text-sm font-semibold text-neutral-300 hover:text-white focus:text-white focus:outline-none w-64 transition"
-            placeholder="Untitled Document"
+            className="bg-transparent text-sm font-serif italic text-amber-500/80 hover:text-amber-400 focus:text-amber-500 focus:outline-none w-64 transition placeholder-stone-700"
+            placeholder="Untitled Parchment"
           />
+        </div>
+
+        {/* SAVE BUTTON */}
+        <div className="flex items-center gap-3">
+           <button 
+             onClick={handleSave}
+             disabled={isSaving}
+             className="flex items-center gap-2 bg-stone-900 border border-stone-800 hover:border-amber-700/80 hover:text-amber-500 text-stone-300 px-5 py-2 rounded-sm text-xs font-serif tracking-widest uppercase transition disabled:opacity-50 shadow-inner"
+           >
+             {isSaving ? <Loader2 className="w-4 h-4 animate-spin text-amber-600"/> : <Save className="w-4 h-4 text-amber-600/70" />}
+             {isSaving ? "Binding..." : "Save to Archive"}
+           </button>
         </div>
       </nav>
 
       {/* THREE-COLUMN WORKSPACE */}
       <div className="flex flex-1 overflow-hidden relative">
         
-        {/* LEFT COLUMN: Data Entry */}
-        <aside className="w-96 border-r border-neutral-800 bg-neutral-950 flex flex-col z-10 shadow-xl">
-          <div className="p-4 border-b border-neutral-800">
-            <h1 className="font-bold text-lg tracking-tight">Editor</h1>
+        {/* LEFT COLUMN: Data Entry (The Ledger) */}
+        <aside className="w-[400px] border-r border-stone-800/80 bg-stone-950 flex flex-col z-10 shadow-[4px_0_24px_-10px_rgba(0,0,0,0.5)]">
+          <div className="p-5 border-b border-stone-800/80 bg-stone-950">
+            <h1 className="text-xl font-serif text-amber-500 tracking-wide flex items-center gap-3">
+              <div className="w-1.5 h-1.5 rotate-45 bg-amber-700" />
+              Scribe's Ledger
+            </h1>
+            <p className="text-xs text-stone-500 font-serif italic mt-1.5">Record your history for the manuscript.</p>
           </div>
           
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          <div className="flex-1 overflow-y-auto p-5 space-y-4 custom-scrollbar">
             
             {/* DIRECT EDIT: Personal Info */}
-            <div className="border border-neutral-800 rounded-md bg-neutral-900 overflow-hidden shrink-0">
+            <div className="border border-stone-800 rounded-sm bg-stone-900/50 overflow-hidden shrink-0 shadow-sm">
               <button 
-                className="w-full p-3 font-semibold flex justify-between items-center bg-neutral-900 hover:bg-neutral-800 transition"
+                className="w-full p-3 font-serif tracking-wide text-stone-200 flex justify-between items-center hover:bg-stone-800 transition"
                 onClick={() => setOpenSection(openSection === "PersonalInfo" ? null : "PersonalInfo")}
               >
                 Personal Info
-                <span className="text-xs text-neutral-500">{openSection === "PersonalInfo" ? "▼" : "☰"}</span>
+                <span className="text-xs text-stone-500">{openSection === "PersonalInfo" ? "▼" : "☰"}</span>
               </button>
               {openSection === "PersonalInfo" && (
-                <div className="p-4 border-t border-neutral-800 space-y-3 bg-neutral-950">
-                  <input type="text" placeholder="Full Name" value={data.personalInfo.fullName} onChange={(e) => updatePersonalInfo({ fullName: e.target.value })} className="w-full bg-neutral-900 border border-neutral-700 rounded p-2 text-sm text-white focus:border-blue-500 outline-none"/>
-                  <input type="text" placeholder="Job Title / Headline" value={data.personalInfo.headline} onChange={(e) => updatePersonalInfo({ headline: e.target.value })} className="w-full bg-neutral-900 border border-neutral-700 rounded p-2 text-sm text-white focus:border-blue-500 outline-none"/>
+                <div className="p-4 border-t border-stone-800 space-y-3 bg-stone-950">
+                  <input type="text" placeholder="Full Name" value={data.personalInfo.fullName} onChange={(e) => updatePersonalInfo({ fullName: e.target.value })} className={thematicInputClass}/>
+                  <input type="text" placeholder="Job Title / Headline" value={data.personalInfo.headline} onChange={(e) => updatePersonalInfo({ headline: e.target.value })} className={thematicInputClass}/>
                   <div className="grid grid-cols-2 gap-2">
-                    <input type="email" placeholder="Email" value={data.personalInfo.email} onChange={(e) => updatePersonalInfo({ email: e.target.value })} className="w-full bg-neutral-900 border border-neutral-700 rounded p-2 text-sm text-white focus:border-blue-500 outline-none"/>
-                    <input type="text" placeholder="Phone" value={data.personalInfo.phone} onChange={(e) => updatePersonalInfo({ phone: e.target.value })} className="w-full bg-neutral-900 border border-neutral-700 rounded p-2 text-sm text-white focus:border-blue-500 outline-none"/>
+                    <input type="email" placeholder="Email" value={data.personalInfo.email} onChange={(e) => updatePersonalInfo({ email: e.target.value })} className={thematicInputClass}/>
+                    <input type="text" placeholder="Phone" value={data.personalInfo.phone} onChange={(e) => updatePersonalInfo({ phone: e.target.value })} className={thematicInputClass}/>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
-                    <input type="text" placeholder="Location" value={data.personalInfo.location} onChange={(e) => updatePersonalInfo({ location: e.target.value })} className="w-full bg-neutral-900 border border-neutral-700 rounded p-2 text-sm text-white focus:border-blue-500 outline-none"/>
-                    <input type="text" placeholder="Website URL" value={data.personalInfo.website} onChange={(e) => updatePersonalInfo({ website: e.target.value })} className="w-full bg-neutral-900 border border-neutral-700 rounded p-2 text-sm text-white focus:border-blue-500 outline-none"/>
+                    <input type="text" placeholder="Location" value={data.personalInfo.location} onChange={(e) => updatePersonalInfo({ location: e.target.value })} className={thematicInputClass}/>
+                    <input type="text" placeholder="Website URL" value={data.personalInfo.website} onChange={(e) => updatePersonalInfo({ website: e.target.value })} className={thematicInputClass}/>
                   </div>
                 </div>
               )}
             </div>
 
             {/* DIRECT EDIT: Summary */}
-            <div className="border border-neutral-800 rounded-md bg-neutral-900 overflow-hidden shrink-0">
+            <div className="border border-stone-800 rounded-sm bg-stone-900/50 overflow-hidden shrink-0 shadow-sm">
               <button 
-                className="w-full p-3 font-semibold flex justify-between items-center hover:bg-neutral-800 transition"
+                className="w-full p-3 font-serif tracking-wide text-stone-200 flex justify-between items-center hover:bg-stone-800 transition"
                 onClick={() => setOpenSection(openSection === "Summary" ? null : "Summary")}
               >
                 Summary
-                <span className="text-xs text-neutral-500">{openSection === "Summary" ? "▼" : "☰"}</span>
+                <span className="text-xs text-stone-500">{openSection === "Summary" ? "▼" : "☰"}</span>
               </button>
               {openSection === "Summary" && (
-                <div className="p-4 border-t border-neutral-800 bg-neutral-950">
-                  <textarea rows={4} placeholder="Write a brief professional summary..." value={data.summary?.content || ""} onChange={(e) => updateSummary(e.target.value)} className="w-full bg-neutral-900 border border-neutral-700 rounded p-2 text-sm text-white resize-none focus:border-blue-500 outline-none"/>
+                <div className="p-4 border-t border-stone-800 bg-stone-950">
+                  <textarea rows={4} placeholder="Write a brief professional summary..." value={data.summary?.content || ""} onChange={(e) => updateSummary(e.target.value)} className={`${thematicInputClass} resize-none`}/>
                 </div>
               )}
             </div>
@@ -285,48 +355,48 @@ export default function EditorWorkspace() {
               const isOpen = openSection === config.key;
 
               return (
-                <div key={config.key} className="border border-neutral-800 rounded-md bg-neutral-900 overflow-hidden shrink-0">
+                <div key={config.key} className="border border-stone-800 rounded-sm bg-stone-900/50 overflow-hidden shrink-0 shadow-sm">
                   <button 
-                    className="w-full p-3 font-semibold flex justify-between items-center hover:bg-neutral-800 transition"
+                    className="w-full p-3 font-serif tracking-wide text-stone-200 flex justify-between items-center hover:bg-stone-800 transition"
                     onClick={() => {
                       setOpenSection(isOpen ? null : config.key);
                       setEditingItemId(null); 
                     }}
                   >
                     {config.label} ({sectionData?.length || 0})
-                    <span className="text-xs text-neutral-500">{isOpen ? "▼" : "☰"}</span>
+                    <span className="text-xs text-stone-500">{isOpen ? "▼" : "☰"}</span>
                   </button>
                   
                   {isOpen && (
-                    <div className="p-4 border-t border-neutral-800 bg-neutral-950 space-y-3">
+                    <div className="p-4 border-t border-stone-800 bg-stone-950 space-y-3">
                       {sectionData.map((item: any, index: number) => (
-                        <div key={item.id || `fallback-${index}`} className="bg-neutral-900 border border-neutral-800 rounded overflow-hidden">
+                        <div key={item.id || `fallback-${index}`} className="bg-stone-900/50 border border-stone-800 rounded-sm overflow-hidden">
                           
                           <div 
-                            className="p-3 flex justify-between items-center group cursor-pointer hover:bg-neutral-800 transition"
+                            className="p-3 flex justify-between items-center group cursor-pointer hover:bg-stone-800 transition"
                             onClick={() => setEditingItemId(editingItemId === item.id ? null : item.id)}
                           >
                             <div className="overflow-hidden">
-                              <h4 className="text-sm font-semibold text-white truncate">{config.getTitle(item)}</h4>
-                              <p className="text-xs text-neutral-400 truncate">{config.getSubtitle(item)}</p>
+                              <h4 className="text-sm font-semibold text-stone-200 truncate">{config.getTitle(item)}</h4>
+                              <p className="text-xs text-stone-500 truncate">{config.getSubtitle(item)}</p>
                             </div>
                             <button 
                               onClick={(e) => { e.stopPropagation(); removeItem(config.key as any, item.id); }}
-                              className="text-neutral-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition ml-2 shrink-0"
+                              className="text-stone-600 hover:text-red-500 opacity-0 group-hover:opacity-100 transition ml-2 shrink-0"
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
                           </div>
 
                           {editingItemId === item.id && (
-                            <div className="p-3 border-t border-neutral-800 bg-neutral-950 space-y-2">
+                            <div className="p-3 border-t border-stone-800 bg-stone-950 space-y-3">
                               {Object.keys(item)
                                 .filter((key) => key !== "id" && typeof item[key] === "string")
                                 .map((key) => {
                                   const isTextArea = key === "description" || key === "content";
                                   return (
                                     <div key={key}>
-                                      <label className="text-[10px] text-neutral-500 uppercase tracking-wider mb-1 block">
+                                      <label className="text-[10px] text-amber-600/70 font-serif uppercase tracking-widest mb-1.5 ml-0.5 block">
                                         {key.replace(/([A-Z])/g, " $1").trim()}
                                       </label>
                                       {isTextArea ? (
@@ -334,14 +404,14 @@ export default function EditorWorkspace() {
                                           rows={4}
                                           value={item[key]}
                                           onChange={(e) => updateItem(config.key as any, item.id, { [key]: e.target.value })}
-                                          className="w-full bg-neutral-900 border border-neutral-700 rounded p-2 text-xs text-white resize-none focus:border-blue-500 outline-none"
+                                          className={`${thematicInputClass} resize-none text-xs`}
                                         />
                                       ) : (
                                         <input
                                           type="text"
                                           value={item[key]}
                                           onChange={(e) => updateItem(config.key as any, item.id, { [key]: e.target.value })}
-                                          className="w-full bg-neutral-900 border border-neutral-700 rounded p-2 text-xs text-white focus:border-blue-500 outline-none"
+                                          className={`${thematicInputClass} text-xs`}
                                         />
                                       )}
                                     </div>
@@ -358,9 +428,9 @@ export default function EditorWorkspace() {
                           addItem(config.key as any, newItem);
                           setEditingItemId(newItem.id); 
                         }}
-                        className="w-full py-2 border border-dashed border-neutral-700 hover:border-blue-500 text-neutral-400 hover:text-blue-400 rounded text-sm flex items-center justify-center gap-2 transition"
+                        className="w-full mt-4 py-2 border border-dashed border-stone-700 hover:border-amber-600/60 text-amber-600/70 hover:text-amber-500 bg-stone-950 hover:bg-stone-900 rounded-sm text-xs font-serif tracking-widest uppercase transition-all flex justify-center items-center gap-2"
                       >
-                        <Plus className="w-4 h-4" /> Add {config.label}
+                        <Plus className="w-3 h-3" /> Add {config.label}
                       </button>
                     </div>
                   )}
@@ -371,27 +441,28 @@ export default function EditorWorkspace() {
           </div>
         </aside>
 
-        {/* MINISCREEN MODAL */}
+        {/* MINISCREEN MODAL FOR ADDING ITEMS */}
         {activeModal && activeModalConfig && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-            <div className="bg-neutral-900 border border-neutral-800 rounded-lg shadow-2xl w-[500px] flex flex-col">
-              <div className="p-4 border-b border-neutral-800 flex justify-between items-center">
-                <h3 className="font-semibold text-lg">Add New {activeModalConfig.label}</h3>
-                <button onClick={() => setActiveModal(null)} className="text-neutral-500 hover:text-white"><X className="w-5 h-5"/></button>
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-stone-950/80 backdrop-blur-sm">
+            <div className="bg-stone-900 border border-amber-900/50 rounded-sm shadow-2xl w-[500px] flex flex-col relative overflow-hidden">
+              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-amber-700 to-transparent opacity-50" />
+              <div className="p-5 border-b border-stone-800 flex justify-between items-center bg-stone-950">
+                <h3 className="font-serif text-xl text-amber-500">Add New {activeModalConfig.label}</h3>
+                <button onClick={() => setActiveModal(null)} className="text-stone-500 hover:text-amber-500 transition"><X className="w-5 h-5"/></button>
               </div>
               <div className="p-6 space-y-4">
-                <p className="text-sm text-neutral-400">Clicking save will inject a dummy object into your global state.</p>
+                <p className="text-sm text-stone-400 font-serif italic">Clicking save will inject a dummy object into your global state.</p>
               </div>
-              <div className="p-4 border-t border-neutral-800 bg-neutral-950 flex justify-end gap-3">
-                <button onClick={() => setActiveModal(null)} className="px-4 py-2 rounded text-sm text-neutral-400 hover:text-white transition">Cancel</button>
-                <button onClick={handleAddNewItem} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm font-semibold transition">Save</button>
+              <div className="p-4 border-t border-stone-800 bg-stone-950 flex justify-end gap-4">
+                <button onClick={() => setActiveModal(null)} className="px-6 py-2 rounded-sm text-sm font-medium text-stone-500 hover:text-stone-300 transition">Cancel</button>
+                <button onClick={handleAddNewItem} className="px-6 py-2 bg-stone-900 border border-amber-900/50 hover:border-amber-500/80 text-amber-500 rounded-sm text-sm font-serif tracking-widest uppercase shadow-inner hover:shadow-[0_0_15px_rgba(245,158,11,0.1)] transition-all">Save</button>
               </div>
             </div>
           </div>
         )}
 
-        {/* CENTER COLUMN: A4 Canvas */}
-        <main className="flex-1 bg-neutral-800 overflow-y-auto flex justify-center py-10 relative print:py-0 print:bg-white scroll-smooth">
+        {/* CENTER COLUMN: A4 Canvas (Untouched styling for PDF) */}
+        <main className="flex-1 bg-[#1c1917] overflow-y-auto flex justify-center py-10 relative print:py-0 print:bg-white scroll-smooth custom-scrollbar">
           <div
             id="print-area"
             className="a4-canvas bg-white text-black shadow-2xl relative transition-all duration-300"
@@ -562,58 +633,57 @@ export default function EditorWorkspace() {
           </div>
         </main>
 
-        {/* RIGHT COLUMN: Layout & AI */}
-        <aside className="w-96 border-l border-neutral-800 bg-neutral-950 flex flex-col z-10 shadow-xl relative">
-          <div className="p-4 border-b border-neutral-800">
-            <h2 className="font-bold text-lg">Layout & AI</h2>
+        {/* RIGHT COLUMN: AI Counsel */}
+        <aside className="w-[380px] border-l border-stone-800/80 bg-stone-950 flex flex-col z-10 shadow-[-4px_0_24px_-10px_rgba(0,0,0,0.5)]">
+          <div className="p-5 border-b border-stone-800/80 bg-stone-950">
+            <h2 className="text-xl font-serif text-amber-500 tracking-wide flex items-center gap-3">
+              <Sparkles className="w-5 h-5 text-amber-600" />
+              AI Counsel
+            </h2>
+            <p className="text-xs text-stone-500 font-serif italic mt-1.5">Consult the scribe to refine your parchment.</p>
           </div>
           
-          <div className="flex-1 overflow-y-auto p-4 space-y-6">
-            <div>
-              <h3 className="text-xs text-neutral-400 font-semibold mb-3 uppercase tracking-wider">Templates</h3>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="h-20 bg-neutral-900 rounded border border-neutral-700 hover:border-blue-500 cursor-pointer transition flex items-center justify-center text-xs">Onyx</div>
-                <div className="h-20 bg-neutral-900 rounded border border-neutral-700 hover:border-blue-500 cursor-pointer transition flex items-center justify-center text-xs">Classic</div>
-              </div>
-            </div>
+          <div className="flex-1 overflow-y-auto p-5 space-y-8 custom-scrollbar">
             
-            <div className="border-t border-neutral-800 pt-4">
-              <h3 className="text-sm text-blue-400 font-semibold mb-2 flex items-center gap-2">✨ Phase 1 & 2: Optimize</h3>
-              <p className="text-xs text-neutral-500 mb-4">Shorten redundancies and optimize keywords for ATS readability.</p>
-              <button onClick={handleRunOptimization} disabled={isOptimizing} className={`w-full py-2 rounded text-sm font-semibold transition flex items-center justify-center gap-2 ${isOptimizing ? "bg-neutral-800 text-neutral-500 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700 text-white"}`}>
-                {isOptimizing && <Loader2 className="w-4 h-4 animate-spin" />}
-                {isOptimizing ? "Analyzing Resume..." : "Optimize Resume"}
+            {/* OPTIMIZE SECTION */}
+            <div>
+              <h3 className="text-xs text-amber-600/70 font-serif uppercase tracking-widest mb-2 flex items-center gap-2">Phase 1 & 2: Optimize</h3>
+              <p className="text-xs text-stone-400 mb-4 font-serif italic">Shorten redundancies and optimize keywords for readability.</p>
+              <button onClick={handleRunOptimization} disabled={isOptimizing} className={`w-full py-3.5 rounded-sm text-xs font-serif tracking-widest uppercase transition-all flex items-center justify-center gap-2 group relative overflow-hidden shadow-inner ${isOptimizing ? "bg-stone-900 border border-stone-800 text-stone-500 cursor-not-allowed" : "bg-stone-900 border border-amber-900/50 hover:border-amber-500/80 text-amber-500 hover:shadow-[0_0_15px_rgba(245,158,11,0.1)]"}`}>
+                {isOptimizing ? <Loader2 className="w-4 h-4 animate-spin text-amber-700" /> : <Wand2 className="w-4 h-4 text-amber-600" />}
+                {isOptimizing ? "Scribe is reading..." : "Run Optimization"}
               </button>
             </div>
 
             {/* AI AUTO-SCROLL ANCHOR */}
             <div ref={aiResultsRef} />
 
+            {/* AI FEEDBACK CARDS */}
             {aiSuggestions && (
               <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
                 
                 {aiSuggestions.generalFeedback && (
-                  <div className="bg-neutral-900 border border-neutral-800 p-3 rounded-md">
-                    <h4 className="text-xs font-bold uppercase tracking-wider text-neutral-400 mb-2">General Feedback</h4>
-                    <p className="text-xs text-neutral-300 leading-relaxed mb-3">{safeRender(aiSuggestions.generalFeedback.summary)}</p>
-                    <div className="space-y-2 text-xs">
+                  <div className="bg-stone-900/80 border border-stone-800 border-l-2 border-l-amber-600 rounded-r-sm p-4 relative shadow-sm">
+                    <h4 className="text-[10px] font-serif uppercase tracking-widest text-amber-500 bg-amber-900/20 px-2 py-0.5 rounded-sm inline-block mb-3">General Feedback</h4>
+                    <p className="text-xs text-stone-300 leading-relaxed mb-4 font-serif">{safeRender(aiSuggestions.generalFeedback.summary)}</p>
+                    <div className="space-y-2 text-xs font-serif italic">
                       {aiSuggestions.generalFeedback.strengths?.map((str, i) => (
-                        <div key={i} className="text-green-400 flex gap-1"><Check className="w-3 h-3 shrink-0 mt-0.5"/> <span>{safeRender(str)}</span></div>
+                        <div key={i} className="text-emerald-500/90 flex gap-2"><Check className="w-3 h-3 shrink-0 mt-0.5"/> <span>{safeRender(str)}</span></div>
                       ))}
                       {aiSuggestions.generalFeedback.fixes?.map((fix, i) => (
-                        <div key={i} className="text-yellow-500 flex gap-1"><X className="w-3 h-3 shrink-0 mt-0.5"/> <span>{safeRender(fix)}</span></div>
+                        <div key={i} className="text-amber-500/90 flex gap-2"><X className="w-3 h-3 shrink-0 mt-0.5"/> <span>{safeRender(fix)}</span></div>
                       ))}
                     </div>
                   </div>
                 )}
 
                 {aiSuggestions.matchStrategy && (
-                  <div className="bg-neutral-900 border border-emerald-900/50 p-3 rounded-md">
-                    <h4 className="text-xs font-bold uppercase tracking-wider text-emerald-500 mb-2">🎯 Match Strategy</h4>
-                    <p className="text-xs text-neutral-300 leading-relaxed mb-3">{safeRender(aiSuggestions.matchStrategy.emphasis)}</p>
-                    <div className="space-y-1 text-xs text-neutral-400">
-                      <span className="font-semibold text-neutral-300">Key Priorities:</span>
-                      <ul className="list-disc pl-4 mt-1">
+                  <div className="bg-stone-900/80 border border-stone-800 border-l-2 border-l-emerald-600 rounded-r-sm p-4 relative shadow-sm">
+                    <h4 className="text-[10px] font-serif uppercase tracking-widest text-emerald-500 bg-emerald-900/20 px-2 py-0.5 rounded-sm inline-block mb-3">Match Strategy</h4>
+                    <p className="text-xs text-stone-300 leading-relaxed mb-4 font-serif">{safeRender(aiSuggestions.matchStrategy.emphasis)}</p>
+                    <div className="space-y-1 text-xs text-stone-400 font-serif italic">
+                      <span className="font-semibold text-stone-300 not-italic">Key Priorities:</span>
+                      <ul className="list-disc pl-4 mt-2 space-y-1">
                         {aiSuggestions.matchStrategy.priorities?.map((priority, i) => (
                           <li key={i}>{safeRender(priority)}</li>
                         ))}
@@ -624,22 +694,32 @@ export default function EditorWorkspace() {
 
                 {aiSuggestions.suggestedRewrites?.length > 0 && (
                   <div>
-                    <h4 className="text-xs font-bold uppercase tracking-wider text-neutral-400 mb-2">Suggested Edits</h4>
-                    <div className="space-y-3">
+                    <h4 className="text-xs text-amber-600/70 font-serif uppercase tracking-widest mb-3 flex items-center gap-2">Suggested Edits</h4>
+                    <div className="space-y-4">
                       {aiSuggestions.suggestedRewrites.map((suggestion, index) => (
-                        <div key={index} className="bg-neutral-900 border border-neutral-800 rounded-md overflow-hidden flex flex-col">
-                          <div className="p-2 border-b border-neutral-800 bg-neutral-950 flex justify-between items-center">
-                            <span className="text-[10px] uppercase font-bold text-neutral-500 tracking-widest">{safeRender(suggestion.section)} • {safeRender(suggestion.field)}</span>
-                            <span className="text-[10px] text-blue-400 font-medium px-2 py-0.5 bg-blue-500/10 rounded-full">{safeRender(suggestion.reasoning)}</span>
+                        <div key={index} className="bg-stone-900/80 border border-stone-800 border-l-2 border-l-amber-600 rounded-r-sm p-4 relative shadow-sm flex flex-col">
+                          
+                          <div className="flex justify-between items-start mb-3">
+                            <span className="text-[10px] font-serif uppercase tracking-widest text-amber-500 bg-amber-900/20 px-2 py-0.5 rounded-sm">
+                              {safeRender(suggestion.section)} • {safeRender(suggestion.field)}
+                            </span>
                           </div>
-                          <div className="p-3 text-xs leading-relaxed space-y-2">
-                            <div className="line-through text-red-400/70 whitespace-pre-wrap font-mono text-[10px]">{safeRender(suggestion.oldText)}</div>
-                            <div className="text-green-400 font-medium whitespace-pre-wrap font-mono text-[10px]">{safeRender(suggestion.newText)}</div>
+                          
+                          <div className="text-xs leading-relaxed space-y-3">
+                            <div className="line-through decoration-stone-700 text-stone-500 whitespace-pre-wrap font-serif italic">{safeRender(suggestion.oldText)}</div>
+                            <div className="text-stone-200 font-medium whitespace-pre-wrap">{safeRender(suggestion.newText)}</div>
+                            <div className="text-[14px] text-amber-600/70 font-serif italic border-t border-stone-800/80 pt-2 mt-2">
+                              Reasoning: {safeRender(suggestion.reasoning)}
+                            </div>
                           </div>
-                          <div className="flex border-t border-neutral-800">
-                            <button onClick={() => handleDismissEdit(index)} className="flex-1 py-2 text-xs text-neutral-400 hover:text-red-400 hover:bg-neutral-800 transition flex items-center justify-center gap-1"><X className="w-3 h-3" /> Reject</button>
-                            <div className="w-px bg-neutral-800" />
-                            <button onClick={() => handleApplyEdit(suggestion, index)} className="flex-1 py-2 text-xs text-neutral-300 hover:text-green-400 hover:bg-neutral-800 transition flex items-center justify-center gap-1 font-medium"><Check className="w-3 h-3" /> Apply Edit</button>
+                          
+                          <div className="flex gap-2 mt-4 pt-1">
+                            <button onClick={() => handleDismissEdit(index)} className="flex-1 py-1.5 bg-stone-950 hover:bg-stone-800 border border-stone-800 hover:border-red-900/50 text-stone-500 hover:text-red-400 rounded-sm text-xs font-serif uppercase tracking-widest transition-all">
+                              Reject
+                            </button>
+                            <button onClick={() => handleApplyEdit(suggestion, index)} className="flex-1 py-1.5 bg-stone-950 hover:bg-stone-800 border border-stone-800 hover:border-emerald-700/50 text-emerald-600 hover:text-emerald-500 rounded-sm text-xs font-serif uppercase tracking-widest transition-all">
+                              Accept
+                            </button>
                           </div>
                         </div>
                       ))}
@@ -649,13 +729,14 @@ export default function EditorWorkspace() {
               </div>
             )}
 
-            <div className="border-t border-neutral-800 pt-4 mt-6">
-              <h3 className="text-sm text-blue-400 font-semibold mb-2 flex items-center gap-2">🎯 Phase 3 & 4: Tailor to Job</h3>
-              <p className="text-xs text-neutral-500 mb-3">Paste a job description to map your skills and reframe your experience.</p>
-              <textarea value={jobDescription} onChange={(e) => setJobDescription(e.target.value)} className="w-full h-32 bg-neutral-900 border border-neutral-700 rounded p-2 text-xs focus:border-blue-500 outline-none resize-none" placeholder="Paste Job Description here..."/>
-              <button onClick={handleRunTailoring} disabled={isTailoring} className={`w-full mt-2 py-2 rounded text-sm font-semibold transition flex items-center justify-center gap-2 ${isTailoring ? "bg-neutral-800 border-neutral-700 text-neutral-500 cursor-not-allowed" : "border border-neutral-700 hover:border-blue-500 text-neutral-300 hover:text-blue-400"}`}>
-                {isTailoring && <Loader2 className="w-4 h-4 animate-spin" />}
-                {isTailoring ? "Tailoring..." : "Tailor Resume"}
+            {/* TAILOR SECTION */}
+            <div className="border-t border-stone-800/80 pt-6">
+              <h3 className="text-xs text-amber-600/70 font-serif uppercase tracking-widest mb-2 flex items-center gap-2">Phase 3 & 4: Tailor</h3>
+              <p className="text-xs text-stone-400 mb-3 font-serif italic">Paste a job decree to map your skills.</p>
+              <textarea value={jobDescription} onChange={(e) => setJobDescription(e.target.value)} className={`${thematicInputClass} h-32 resize-none mb-3`} placeholder="Paste Job Description here..."/>
+              <button onClick={handleRunTailoring} disabled={isTailoring} className={`w-full py-3.5 rounded-sm text-xs font-serif tracking-widest uppercase transition-all flex items-center justify-center gap-2 group relative overflow-hidden shadow-inner ${isTailoring ? "bg-stone-900 border border-stone-800 text-stone-500 cursor-not-allowed" : "bg-stone-900 border border-amber-900/50 hover:border-amber-500/80 text-amber-500 hover:shadow-[0_0_15px_rgba(245,158,11,0.1)]"}`}>
+                {isTailoring && <Loader2 className="w-4 h-4 animate-spin text-amber-700" />}
+                {isTailoring ? "Forging alignment..." : "Tailor Manuscript"}
               </button>
             </div>
 

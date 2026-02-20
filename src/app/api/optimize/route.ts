@@ -1,87 +1,133 @@
 import { NextResponse } from "next/server";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import OpenAI from "openai";
 
 export const runtime = "nodejs";
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
+const openai = new OpenAI({
+  baseURL: "https://openrouter.ai/api/v1",
+  apiKey: process.env.OPENROUTER_API_KEY,
+});
+
+function extractJSON(text: string) {
+  // 1. Strip out Qwen/DeepSeek <think> blocks entirely
+  let cleanText = text.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+
+  try { 
+    return JSON.parse(cleanText); 
+  } catch (e) {
+    // 2. Try to find markdown JSON blocks
+    const match = cleanText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+    if (match) {
+      try { return JSON.parse(match[1]); } catch (e2) {} // Fall through if it fails
+    }
+    
+    // 3. Last resort: Find the first { and last }
+    const start = cleanText.indexOf('{');
+    const end = cleanText.lastIndexOf('}');
+    if (start !== -1 && end !== -1) {
+      let jsonString = cleanText.substring(start, end + 1);
+      
+      // 🔧 AI Hallucination Fix: Remove illegal trailing commas right before brackets
+      jsonString = jsonString.replace(/,\s*([\]}])/g, '$1');
+      
+      // 🔧 AI Hallucination Fix: Attempt to fix unescaped internal quotes (basic pass)
+      // This is a complex regex that tries to escape quotes inside values, but leaves structural quotes alone.
+      jsonString = jsonString.replace(/(?<=:\s*)"(.*?)"(?=\s*[,}])/g, (match, innerText) => {
+        return '"' + innerText.replace(/"/g, '\\"') + '"';
+      });
+
+      return JSON.parse(jsonString);
+    }
+    throw new Error("Could not extract JSON");
+  }
+}
+
+async function fetchWithFallback(prompt: string) {
+  // Your selected Qwen lineup
+  const fallbackModels = [
+    "qwen/qwen3-vl-30b-a3b-thinking",
+    "qwen/qwen3-vl-235b-a22b-thinking",
+    "qwen/qwen3-235b-a22b-thinking-2507"
+  ];
+
+  for (const modelName of fallbackModels) {
+    try {
+      console.log(`Attempting optimize with ${modelName}...`);
+      const completion = await openai.chat.completions.create({
+        model: modelName,
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.3,
+      });
+      return completion; 
+    } catch (error: any) {
+      if (error?.status === 429 || error?.status === 529 || error?.status === 502) {
+        console.warn(`[Overload] ${modelName} is busy. Trying next...`);
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw new Error("All Qwen models are currently overloaded. Please try again later.");
+}
 
 export async function POST(request: Request) {
   try {
     const { resumeData } = await request.json();
-
-    if (!resumeData) {
-      return NextResponse.json({ error: "No resume data provided" }, { status: 400 });
-    }
-
-    const model = genAI.getGenerativeModel({
-      model: "gemini-2.5-flash-lite",
-      generationConfig: {
-        responseMimeType: "application/json",
-        // Slightly higher temperature for creative phrasing, but low enough for strict JSON
-        temperature: 0.4, 
-      },
-    });
+    if (!resumeData) return NextResponse.json({ error: "No resume data" }, { status: 400 });
 
     const prompt = `
-You are a professional recruiter and resume consultant specializing in early-career and technical candidates. Your goal is to help me create a strong, one-page, ATS-optimized resume that feels authentic, confident, and human — not AI-written.
+You are a top-tier executive recruiter and technical resume consultant. Your goal is to help me create a strong, ATS-optimized resume that feels authentic, impactful, and human.
 
 I am providing my current resume data in JSON format.
-Perform PHASE 1 (Resume Shortening) and PHASE 2 (ATS Optimization) based on these rules:
+Perform PHASE 1 (Resume Shortening) and PHASE 2 (ATS Optimization) based on these strict rules:
 
-PHASE 1 — Resume Shortening
-- Identify redundant sections, repetitive lines, or long-winded phrasing.
-- Suggest specific edits to fit neatly on one page while preserving meaning and value.
-- Preserve my voice, tone, and achievements.
+PHASE 1 — Resume Shortening & Impact
+- Identify redundant sections, repetitive lines, or long-winded paragraphs.
+- Suggest specific, aggressive edits to tighten phrasing while maximizing impact.
+- Preserve my core voice and truth, but elevate the professional tone.
 
-PHASE 2 — ATS Optimization
-- Detect issues with ATS readability, formatting, or weak keywords.
-- Suggest subtle rewrites to improve keyword hits without losing authenticity.
-- Quantify achievements where obvious, or suggest tightening weak verbs.
+PHASE 2 — ATS Optimization & Power Verbs
+- Detect issues with weak verbs (e.g., "helped with", "responsible for") and replace them with strong action verbs (e.g., "Architected", "Spearheaded", "Engineered").
+- Suggest rewrites to naturally weave in stronger industry keywords.
+- Where obvious context exists, suggest ways to quantify achievements (e.g., adding metrics, percentages, or scale).
 
-RULES
-- Never use AI-like phrases ("as an AI", "in conclusion", "optimized synergy").
-- Keep all language human and natural.
-- Do not invent experience — only reframe what is true from the provided data.
-- Return ONLY a strict JSON object matching the required structure.
+STRICT RULES:
+- Never use generic AI filler phrases ("synergy", "spearheaded a paradigm shift", "as an AI").
+- Do not invent experience or fake metrics — only reframe and elevate what is already true.
+- If a section is actively harming the resume, suggest "REMOVE_ITEM" as the newText.
+- Return ONLY a strict JSON object matching the required structure below.
+- ESCAPE all internal double quotes inside your string values using a backslash (\").
+- Do NOT output trailing commas at the end of JSON arrays or objects.
 
-REQUIRED JSON OUTPUT STRUCTURE:
+REQUIRED JSON OUTPUT:
 {
   "generalFeedback": {
-    "summary": "String: A concise summary of what needs to change across the resume and why.",
-    "strengths": ["Array of Strings: List of ✅ Strengths"],
-    "fixes": ["Array of Strings: List of ⚠️ Fixes Needed"]
+    "summary": "String: A concise, blunt summary of what needs to change across the resume and why.",
+    "strengths": ["Array of Strings: 2-3 ✅ Strengths of the current resume"],
+    "fixes": ["Array of Strings: 2-3 ⚠️ Fixes needed (e.g., weak verbs, lack of metrics)"]
   },
   "suggestedRewrites": [
     {
       "section": "String: exact section key (e.g., 'experience', 'projects', 'summary')",
-      "itemId": "String: the exact 'id' from the provided JSON item (leave empty if it's the main summary)",
-      "field": "String: the specific field to change (e.g., 'description', 'content', 'headline')",
+      "itemId": "String: the exact 'id' from the provided JSON item (leave empty for summary)",
+      "field": "String: the specific field to change (e.g., 'description', 'content')",
       "oldText": "String: the original text from the resume",
-      "newText": "String: your suggested improved text",
-      "reasoning": "String: brief explanation of why this change improves ATS or shortens the resume"
+      "newText": "String: your highly optimized suggested text",
+      "reasoning": "String: brief explanation of why this change improves ATS or impact"
     }
   ]
 }
 
 CURRENT RESUME DATA:
 ${JSON.stringify(resumeData, null, 2)}
-`;
+    `;
 
-    const result = await model.generateContent(prompt);
-    const responseText = result.response.text();
-
-    if (!responseText) {
-      throw new Error("Empty response from Gemini");
-    }
-
-    const parsedResponse = JSON.parse(responseText);
+    const completion = await fetchWithFallback(prompt);
+    const parsedResponse = extractJSON(completion.choices[0]?.message?.content || "");
     return NextResponse.json(parsedResponse, { status: 200 });
 
   } catch (error) {
     console.error("Optimization error:", error);
-    return NextResponse.json(
-      { error: "Failed to generate optimizations." },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to generate optimizations." }, { status: 500 });
   }
 }

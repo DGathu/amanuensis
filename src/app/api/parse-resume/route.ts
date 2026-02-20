@@ -1,128 +1,132 @@
 import { NextResponse } from "next/server";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import OpenAI from "openai";
 import PDFParser from "pdf2json";
-
-// 🔧 Type definitions for PDFParser data structure
-interface PDFTextObject {
-  T: string;
-}
-
-interface PDFTextLine {
-  R: PDFTextObject[];
-}
-
-interface PDFPage {
-  Texts: PDFTextLine[];
-}
-
-interface PDFData {
-  Pages: PDFPage[];
-}
 
 export const runtime = "nodejs";
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
+const openai = new OpenAI({
+  baseURL: "https://openrouter.ai/api/v1",
+  apiKey: process.env.OPENROUTER_API_KEY,
+});
 
-// 🔧 Utility: Inject UUIDs into array sections
+// --- BULLETPROOF JSON EXTRACTOR ---
+function extractJSON(text: string) {
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    const match = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+    if (match) {
+      return JSON.parse(match[1]);
+    }
+    const start = text.indexOf('{');
+    const end = text.lastIndexOf('}');
+    if (start !== -1 && end !== -1) {
+      return JSON.parse(text.substring(start, end + 1));
+    }
+    throw new Error("Could not extract valid JSON from AI response");
+  }
+}
+
+// 🔧 Inject UUIDs
 function injectUUIDs(data: any) {
-  const arraySections = [
-    "experience",
-    "education",
-    "projects",
-    "skills",
-    "languages",
-    "interests",
-    "awards",
-    "certifications",
-    "publications",
-    "volunteer",
-    "references",
-  ];
-
+  const arraySections = ["experience", "education", "projects", "skills", "languages", "interests", "awards", "certifications", "publications", "volunteer", "references"];
   arraySections.forEach((section) => {
     if (Array.isArray(data[section])) {
       data[section] = data[section].map((item: any) => {
-        // Strip out the empty "id" from Gemini so it doesn't overwrite our UUID
-        const { id, ...rest } = item; 
-        return {
-          id: crypto.randomUUID(),
-          ...rest,
-        };
+        const { id, ...rest } = item;
+        return { id: crypto.randomUUID(), ...rest };
       });
     }
   });
-
   return data;
 }
 
-// 🔥 Safe PDF text extraction using pdf2json
+// 🛡️ SAFE DECODE UTILITY
+// Prevents malformed PDF character sequences from crashing the server
+function safeDecode(text: string): string {
+  try {
+    return decodeURIComponent(text);
+  } catch (e) {
+    try {
+      // Fallback for older URI encoding
+      return unescape(text); 
+    } catch (e2) {
+      // If all else fails, return the raw text instead of crashing
+      return text; 
+    }
+  }
+}
+
 async function extractTextFromPDF(buffer: Buffer): Promise<string> {
   return new Promise((resolve, reject) => {
     const parser = new PDFParser();
-
+    
     parser.on("pdfParser_dataError", (err: any) => reject(err.parserError));
+    
     parser.on("pdfParser_dataReady", () => {
       let rawText = "";
-
-      // ✅ Safe: check if parser.data exists before accessing
-      if (parser.data && (parser.data as PDFData).Pages) {
-        (parser.data as PDFData).Pages.forEach((page: PDFPage) => {
-          page.Texts.forEach((textObj: PDFTextLine) => {
-            textObj.R.forEach((t: PDFTextObject) => {
-              // ✅ Safe: skip decodeURIComponent
-              rawText += t.T + " ";
+      if (parser.data && (parser.data as any).Pages) {
+        (parser.data as any).Pages.forEach((page: any) => {
+          page.Texts.forEach((textObj: any) => {
+            textObj.R.forEach((t: any) => { 
+              // 🔥 Apply the safe wrapper here
+              rawText += safeDecode(t.T) + " "; 
             });
           });
           rawText += "\n\n";
         });
       }
-
-      // Optional: normalize whitespace for AI parsing
-      const cleanedText = rawText.replace(/\s+/g, " ").replace(/\n\s+/g, "\n").trim();
-      resolve(cleanedText);
+      resolve(rawText.trim());
     });
-
+    
     parser.parseBuffer(buffer);
   });
+}
+
+async function fetchWithFallback(prompt: string) {
+  // A list of the best free JSON-capable models on OpenRouter
+  const fallbackModels = [
+    "qwen/qwen3-vl-30b-a3b-thinking",
+    "qwen/qwen3-vl-235b-a22b-thinking",
+    "qwen/qwen3-235b-a22b-thinking-2507"
+  ];
+
+  for (const modelName of fallbackModels) {
+    try {
+      console.log(`Attempting parse with ${modelName}...`);
+      const completion = await openai.chat.completions.create({
+        model: modelName,
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.1,
+      });
+      return completion; // Success!
+    } catch (error: any) {
+      // If it's a 429 (Rate Limit) or 529 (Overloaded), log it and loop to the next model
+      if (error?.status === 429 || error?.status === 529 || error?.status === 502) {
+        console.warn(`[429/Overload] ${modelName} is busy. Falling back to next model...`);
+        continue;
+      }
+      // If it's a different error (like a bad API key), throw it immediately
+      throw error;
+    }
+  }
+  throw new Error("All free models are currently overloaded. Please try again later.");
 }
 
 export async function POST(request: Request) {
   try {
     const formData = await request.formData();
     const file = formData.get("file") as File;
+    if (!file) return NextResponse.json({ error: "No file uploaded" }, { status: 400 });
 
-    if (!file) {
-      return NextResponse.json({ error: "No file uploaded" }, { status: 400 });
-    }
-
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
-
-    // 🔥 Extract PDF text safely
+    const buffer = Buffer.from(await file.arrayBuffer());
     const rawText = await extractTextFromPDF(buffer);
 
-    if (!rawText) {
-      return NextResponse.json({ error: "Failed to extract text from PDF" }, { status: 400 });
-    }
-
-    // 🔹 Prepare Gemini AI
-    const model = genAI.getGenerativeModel({
-      model: "gemini-2.5-flash-lite",
-      generationConfig: {
-        responseMimeType: "application/json",
-        temperature: 0.2,
-      },
-    });
+    if (!rawText.trim()) return NextResponse.json({ error: "Failed to extract text from PDF" }, { status: 400 });
 
     const prompt = `
-You are an expert resume data extractor.
-
-Convert the raw resume text into JSON matching this structure.
-DO NOT invent data.
-If missing, use empty string or empty array.
-Leave all "id" fields empty — they will be generated server-side.
-
-Required Structure:
+You are an expert resume data extractor. Convert the raw resume text into JSON matching this structure. DO NOT invent data. Leave "id" fields empty.
+REQUIRED STRUCTURE:
 {
   "personalInfo": { "fullName": "", "headline": "", "email": "", "phone": "", "location": "", "website": "" },
   "summary": { "content": "" },
@@ -139,32 +143,20 @@ Required Structure:
   "volunteer": [ { "id": "", "organization": "", "location": "", "startDate": "", "endDate": "", "website": "", "description": "" } ],
   "references": [ { "id": "", "name": "", "position": "", "phone": "", "website": "", "description": "" } ]
 }
-
-Raw Resume Text:
+RAW TEXT:
 ${rawText}
-`;
+    `;
 
-    const result = await model.generateContent(prompt);
-    const responseText = result.response.text();
+    // Use our new resilient fetcher
+    const completion = await fetchWithFallback(prompt);
 
-    if (!responseText) {
-      return NextResponse.json({ error: "Gemini returned empty response" }, { status: 500 });
-    }
-
-    let parsedData;
-    try {
-      parsedData = JSON.parse(responseText);
-    } catch (err) {
-      console.error("Invalid JSON from Gemini:", responseText);
-      return NextResponse.json({ error: "AI returned invalid JSON" }, { status: 500 });
-    }
-
-    // 🔥 Inject real UUIDs
+    const responseText = completion.choices[0]?.message?.content || "";
+    const parsedData = extractJSON(responseText);
     const finalData = injectUUIDs(parsedData);
 
     return NextResponse.json(finalData, { status: 200 });
-  } catch (error) {
-    console.error("Resume parsing error:", error);
-    return NextResponse.json({ error: "Failed to parse resume" }, { status: 500 });
+  } catch (error: any) {
+    console.error("Resume parsing error:", error?.message || error);
+    return NextResponse.json({ error: error?.message || "Failed to parse resume" }, { status: 500 });
   }
 }
