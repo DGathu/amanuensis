@@ -1,16 +1,21 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getServerSession } from "next-auth/next";
 
-// Fetches ONE specific manuscript by its ID
+// Fetches ONE specific manuscript, verifying ownership
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const session = await getServerSession();
+    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const userId = "local-admin";
     const { id } = await params;
 
-    const resume = await prisma.resume.findUnique({
-      where: { id },
-    });
+    const resume = await prisma.resume.findUnique({ where: { id } });
     
-    if (!resume) return NextResponse.json({ error: "Manuscript not found" }, { status: 404 });
+    if (!resume || resume.userId !== userId) {
+      return NextResponse.json({ error: "Manuscript not found or unauthorized" }, { status: 404 });
+    }
     
     return NextResponse.json(resume, { status: 200 });
   } catch (error) {
@@ -19,14 +24,21 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   }
 }
 
-// Burns a specific manuscript by its ID
+// Burns a specific manuscript, verifying ownership
 export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const session = await getServerSession();
+    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const userId = "local-admin";
     const { id } = await params;
 
-    await prisma.resume.delete({
-      where: { id },
-    });
+    const existing = await prisma.resume.findUnique({ where: { id } });
+    if (!existing || existing.userId !== userId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    await prisma.resume.delete({ where: { id } });
     
     return NextResponse.json({ success: true }, { status: 200 });
   } catch (error) {

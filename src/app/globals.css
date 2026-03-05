@@ -94,3 +94,32 @@ body {
 .flash-highlight {
   animation: flashGreen 1.5s ease-out;
 }
+
+/* --- Scribe's PDF Export Rules --- */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 0mm; /* We handle the margins inside our canvas padding */
+  }
+
+  body {
+    background: white !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* This prevents a single job or project from being split across two pages */
+  .prevent-break {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* Force the canvas to drop its shadow and flex rules for a flat print */
+  .a4-canvas {
+    box-shadow: none !important;
+    transform: none !important;
+    margin: 0 !important;
+    width: 210mm !important;
+    min-height: 297mm !important;
+  }
+}

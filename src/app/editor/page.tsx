@@ -1,9 +1,11 @@
 "use client";
 
+import { PDFDownloadLink } from "@react-pdf/renderer";
+import ResumePDF from "@/components/ResumePDF";
 import React, { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useResumeStore } from "@/store/useResumeStore";
-import { Plus, Trash2, X, Home, Loader2, Check, Save, AlertTriangle, Flame, Sparkles, Wand2 } from "lucide-react";
+import { Plus, Trash2, X, Home, Loader2, Check, Save, AlertTriangle, Flame, Sparkles, Wand2, Download, GripVertical } from "lucide-react";
 
 type ModalConfig = {
   isOpen: boolean;
@@ -52,7 +54,7 @@ const ARRAY_SECTIONS = [
   { key: "certifications", label: "Certifications", getTitle: (i: any) => i.title || "New Certification", getSubtitle: (i: any) => i.issuer || "", getBlank: () => ({ id: generateId(), title: "Cert Title", issuer: "Issuing Body", date: "", website: "", description: "" }) },
   { key: "publications", label: "Publications", getTitle: (i: any) => i.title || "New Publication", getSubtitle: (i: any) => i.publisher || "", getBlank: () => ({ id: generateId(), title: "Publication Title", publisher: "Publisher", date: "", website: "", description: "" }) },
   { key: "volunteer", label: "Volunteer", getTitle: (i: any) => i.organization || "New Organization", getSubtitle: (i: any) => i.location || "", getBlank: () => ({ id: generateId(), organization: "Org Name", location: "", startDate: "", endDate: "", website: "", description: "" }) },
-  { key: "references", label: "References", getTitle: (i: any) => i.name || "Reference Name", getSubtitle: (i: any) => i.position || "", getBlank: () => ({ id: generateId(), name: "John Doe", position: "Manager", phone: "", website: "", description: "" }) }
+  { key: "references", label: "References", getTitle: (i: any) => i.name || "Reference Name", getSubtitle: (i: any) => i.company || i.position || "", getBlank: () => ({ id: generateId(), name: "John Doe", position: "Manager", company: "Company Name", phone: "", email: "" }) }
 ];
 
 export default function EditorWorkspace() {
@@ -61,7 +63,8 @@ export default function EditorWorkspace() {
   const { 
     data, dbId, setDbId, isEditing, setIsEditing, documentTitle, setDocumentTitle, 
     aiSuggestions, setAiSuggestions, updatePersonalInfo, updateSummary, 
-    addItem, updateItem, removeItem, flashedId, triggerFlash 
+    addItem, updateItem, removeItem, flashedId, triggerFlash, sectionOrder, setSectionOrder, 
+    template, setTemplate 
   } = useResumeStore();
   
   const [openSection, setOpenSection] = useState<string | null>("PersonalInfo");
@@ -74,9 +77,13 @@ export default function EditorWorkspace() {
 
   const aiResultsRef = useRef<HTMLDivElement>(null);
   const prevAiSuggestions = useRef(aiSuggestions);
-  const [isSaving, setIsSaving] = useState(false);
   const [modal, setModal] = useState<ModalConfig>({ isOpen: false, type: "alert", title: "", message: "" });
   const closeModal = () => setModal(prev => ({ ...prev, isOpen: false }));
+  const [isClient, setIsClient] = useState(false);
+  
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
 
   // Shared thematic input class
   const thematicInputClass = "w-full bg-stone-900/50 border border-stone-800 focus:border-amber-700/60 focus:ring-1 focus:ring-amber-700/30 text-stone-200 rounded-sm p-2.5 text-sm transition-all placeholder-stone-700 outline-none shadow-inner";
@@ -193,37 +200,76 @@ export default function EditorWorkspace() {
     setActiveModal(null);
   };
 
-  const handleSave = async () => {
-    setIsSaving(true);
-    try {
-      const res = await fetch("/api/resumes", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: dbId, title: documentTitle, data: data }),
-      });
+  // Native HTML5 Drag and Drop State
+  const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
 
-      if (!res.ok) throw new Error("Failed to save");
-
-      const savedResume = await res.json();
-      setDbId(savedResume.id); 
-      
-      setModal({ 
-        isOpen: true, type: "success", 
-        title: "Manuscript Bound", 
-        message: "Your parchment has been securely saved to the archives." 
-      });
-
-    } catch (error) {
-      console.error(error);
-      setModal({ 
-        isOpen: true, type: "alert", 
-        title: "Archive Failed", 
-        message: "Could not reach the database to save your progress." 
-      });
-    } finally {
-      setIsSaving(false);
-    }
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    setDraggedIdx(index);
+    e.dataTransfer.effectAllowed = "move";
   };
+
+  const handleDragEnter = (index: number) => {
+    if (draggedIdx === null || draggedIdx === index) return;
+    const newOrder = [...sectionOrder];
+    const draggedItem = newOrder.splice(draggedIdx, 1)[0];
+    newOrder.splice(index, 0, draggedItem);
+    setSectionOrder(newOrder);
+    setDraggedIdx(index);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedIdx(null);
+  };
+  
+  // --- AUTO-SAVE ENGINE ---
+  const currentStateString = JSON.stringify({ data, documentTitle, sectionOrder, template });
+  const [lastSavedState, setLastSavedState] = useState(currentStateString);
+  const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "unsaved">("saved");
+
+  // Protect against accidental tab closes
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (saveStatus !== "saved") {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [saveStatus]);
+  
+  useEffect(() => {
+    if (currentStateString !== lastSavedState) {
+      setSaveStatus("unsaved");
+      
+      const timer = setTimeout(async () => {
+        setSaveStatus("saving");
+        try {
+          const res = await fetch("/api/resumes", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ 
+              id: dbId, 
+              title: documentTitle, 
+              data: { ...data, sectionOrder, template } 
+            }),
+          });
+          
+          if (res.ok) {
+            const savedResume = await res.json();
+            if (!dbId) setDbId(savedResume.id); // Update ID if it was a brand new draft
+            setLastSavedState(currentStateString);
+            setSaveStatus("saved");
+          }
+        } catch (error) {
+          console.error("Auto-save failed:", error);
+          setSaveStatus("unsaved");
+        }
+      }, 2500); // Waits 2.5 seconds after you stop typing
+
+      return () => clearTimeout(timer); // Cancels the timer if you keep typing
+    }
+  }, [currentStateString, lastSavedState, dbId, documentTitle, data, sectionOrder, template, setDbId]);
 
   if (!isEditing) return <div className="h-screen w-full bg-stone-950" />;
 
@@ -265,31 +311,61 @@ export default function EditorWorkspace() {
       )}
 
       {/* TOP NAVBAR */}
-      <nav className="h-14 border-b border-stone-800 bg-stone-950 flex items-center px-4 shrink-0 z-20 shadow-sm justify-between">
+      <nav className="h-14 border-b border-stone-800 bg-stone-950 flex items-center px-4 shrink-0 z-20 shadow-sm justify-between print:hidden">
+        
+        {/* LEFT SIDE: Home & Title */}
         <div className="flex items-center gap-4">
-          <button onClick={() => router.push("/")} className="p-2 text-stone-500 hover:text-amber-500 hover:bg-stone-900 rounded-sm transition" title="Return to Archives">
+          <button 
+            onClick={async () => {
+              // Force a save before leaving if unsaved
+              if (saveStatus !== "saved") setSaveStatus("saving"); 
+              router.push("/");
+            }} 
+            className="p-2 text-stone-500 hover:text-amber-500 hover:bg-stone-900 rounded-sm transition" 
+            title="Return to Archives"
+          >
             <Home className="w-5 h-5" />
           </button>
           <div className="w-px h-6 bg-stone-800" />
-          <input 
-            type="text" 
-            value={documentTitle} 
-            onChange={(e) => setDocumentTitle(e.target.value)} 
-            className="bg-transparent text-sm font-serif italic text-amber-500/80 hover:text-amber-400 focus:text-amber-500 focus:outline-none w-64 transition placeholder-stone-700"
-            placeholder="Untitled Parchment"
-          />
+          
+          <div className="flex items-center gap-3">
+            <input 
+              type="text" 
+              value={documentTitle} 
+              onChange={(e) => setDocumentTitle(e.target.value)} 
+              className="bg-transparent text-sm font-serif italic text-amber-500/80 hover:text-amber-400 focus:text-amber-500 focus:outline-none w-64 transition placeholder-stone-700"
+              placeholder="Untitled Parchment"
+            />
+            {/* NEW: Auto-save status indicator */}
+            <span className="text-[10px] font-serif uppercase tracking-widest text-stone-500 flex items-center gap-1.5">
+              {saveStatus === "saving" && <><Loader2 className="w-3 h-3 animate-spin text-amber-700" /> Scribe is writing...</>}
+              {saveStatus === "unsaved" && <><div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" /> Unbound changes</>}
+              {saveStatus === "saved" && <><Check className="w-3 h-3 text-emerald-600" /> Safely Bound</>}
+            </span>
+          </div>
         </div>
-
-        {/* SAVE BUTTON */}
+        
+        {/* RIGHT SIDE: Download Scroll */}
         <div className="flex items-center gap-3">
-           <button 
-             onClick={handleSave}
-             disabled={isSaving}
-             className="flex items-center gap-2 bg-stone-900 border border-stone-800 hover:border-amber-700/80 hover:text-amber-500 text-stone-300 px-5 py-2 rounded-sm text-xs font-serif tracking-widest uppercase transition disabled:opacity-50 shadow-inner"
-           >
-             {isSaving ? <Loader2 className="w-4 h-4 animate-spin text-amber-600"/> : <Save className="w-4 h-4 text-amber-600/70" />}
-             {isSaving ? "Binding..." : "Save to Archive"}
-           </button>
+           {isClient ? (
+             <PDFDownloadLink
+               document={<ResumePDF data={data} sectionOrder={sectionOrder} template={template} />}
+               fileName={`${documentTitle.replace(/\s+/g, '_') || "Manuscript"}.pdf`}
+               className="flex items-center gap-2 bg-stone-950 border border-stone-800 hover:border-amber-700/80 hover:text-amber-500 text-stone-400 px-5 py-2 rounded-sm text-xs font-serif tracking-widest uppercase transition"
+             >
+               {({ loading }) =>
+                 loading ? (
+                   <><Loader2 className="w-4 h-4 animate-spin" /> Forging...</>
+                 ) : (
+                   <><Download className="w-4 h-4" /> Download Scroll</>
+                 )
+               }
+             </PDFDownloadLink>
+           ) : (
+             <button className="flex items-center gap-2 bg-stone-950 border border-stone-800 text-stone-600 px-5 py-2 rounded-sm text-xs font-serif tracking-widest uppercase cursor-not-allowed">
+               <Loader2 className="w-4 h-4 animate-spin" /> Preparing...
+             </button>
+           )}
         </div>
       </nav>
 
@@ -297,7 +373,7 @@ export default function EditorWorkspace() {
       <div className="flex flex-1 overflow-hidden relative">
         
         {/* LEFT COLUMN: Data Entry (The Ledger) */}
-        <aside className="w-[400px] border-r border-stone-800/80 bg-stone-950 flex flex-col z-10 shadow-[4px_0_24px_-10px_rgba(0,0,0,0.5)]">
+        <aside className="w-[400px] border-r border-stone-800/80 bg-stone-950 flex flex-col z-10 shadow-[4px_0_24px_-10px_rgba(0,0,0,0.5)] print:hidden">
           <div className="p-5 border-b border-stone-800/80 bg-stone-950">
             <h1 className="text-xl font-serif text-amber-500 tracking-wide flex items-center gap-3">
               <div className="w-1.5 h-1.5 rotate-45 bg-amber-700" />
@@ -461,180 +537,246 @@ export default function EditorWorkspace() {
           </div>
         )}
 
-        {/* CENTER COLUMN: A4 Canvas (Untouched styling for PDF) */}
+        {/* CENTER COLUMN: DYNAMIC A4 CANVAS */}
         <main className="flex-1 bg-[#1c1917] overflow-y-auto flex justify-center py-10 relative print:py-0 print:bg-white scroll-smooth custom-scrollbar">
           <div
             id="print-area"
-            className="a4-canvas bg-white text-black shadow-2xl relative transition-all duration-300"
+            className={`a4-canvas bg-white text-black shadow-2xl relative transition-all duration-300 ${
+              template === 'classic' ? 'font-serif [&_header]:text-center' : 
+              template === 'executive' ? 'font-serif [&_h1]:font-sans [&_h2]:font-sans [&_header]:text-left' : 
+              'font-sans [&_header]:text-left'
+            }`}
             style={{ width: "210mm", minHeight: "297mm", height: "max-content", padding: "20mm" }}
           >
+            {/* Header is always pinned to top */}
             <header id="canvas-personalinfo" className={`text-center mb-6 prevent-break ${flashedId === 'personalInfo' ? 'flash-highlight' : ''}`}>
               <h1 className="text-3xl font-bold uppercase tracking-wide">{data.personalInfo.fullName || "Your Name"}</h1>
               {data.personalInfo.headline && <h2 className="text-lg font-medium text-blue-700 mt-1 prevent-break">{data.personalInfo.headline}</h2>}
               <p className="text-sm text-gray-600 mt-1 prevent-break">
                 {[data.personalInfo.email, data.personalInfo.phone, data.personalInfo.location].filter(Boolean).join(" • ")}
               </p>
-              {data.personalInfo.website && <p className="text-xs text-gray-500 mt-1 prevent-break">{data.personalInfo.website}</p>}
-              {data.profiles?.length > 0 && <p className="text-xs text-gray-500 mt-1 prevent-break">{data.profiles.map(p => p.username || p.network).join(" | ")}</p>}
+              
+              {/* Clickable Website */}
+              {data.personalInfo.website && (
+                <p className="text-xs mt-1 prevent-break">
+                  <a href={data.personalInfo.website} target="_blank" rel="noreferrer" className="text-blue-700 hover:underline">{data.personalInfo.website}</a>
+                </p>
+              )}
+              
+              {/* Clickable Profiles mapped to screen */}
+              {data.profiles?.length > 0 && (
+                <p className="text-xs text-gray-500 mt-1 prevent-break">
+                  {data.profiles.map((p: any, idx: number) => (
+                    <React.Fragment key={idx}>
+                      {p.website ? (
+                        <a href={p.website} target="_blank" rel="noreferrer" className="text-blue-700 hover:underline">
+                          {p.username || p.network}
+                        </a>
+                      ) : (
+                        p.username || p.network
+                      )}
+                      {idx < data.profiles.length - 1 ? " | " : ""}
+                    </React.Fragment>
+                  ))}
+                </p>
+              )}
             </header>
 
-            {data.summary?.content && (
-              <section id="canvas-summary" className={`mb-5 prevent-break ${flashedId === 'summary' ? 'flash-highlight' : ''}`}>
-                <h2 className="text-sm font-bold border-b-2 border-black mb-2 uppercase tracking-wider">Summary</h2>
-                <p className="text-sm leading-relaxed text-gray-800">{data.summary.content}</p>
-              </section>
-            )}
-
-            {data.experience?.length > 0 && (
-              <section id="canvas-experience" className="mb-5 prevent-break">
-                <h2 className="text-sm font-bold border-b-2 border-black mb-2 uppercase tracking-wider">Experience</h2>
-                {data.experience.map((exp, idx) => (
-                  <div key={exp.id || `exp-${idx}`} id={`canvas-${exp.id}`} className={`mb-3 prevent-break ${flashedId === exp.id ? 'flash-highlight' : ''}`}>
-                    <div className="flex justify-between text-sm font-semibold">
-                      <span>{exp.position} {exp.company && `— ${exp.company}`}</span>
-                      <span>{exp.startDate} {exp.endDate ? `- ${exp.endDate}` : ""}</span>
-                    </div>
-                    {exp.location && <p className="text-xs text-gray-600 italic">{exp.location}</p>}
-                    <RenderDescription text={exp.description} />
-                  </div>
-                ))}
-              </section>
-            )}
-
-            {data.education?.length > 0 && (
-              <section id="canvas-education" className="mb-5 prevent-break">
-                <h2 className="text-sm font-bold border-b-2 border-black mb-2 uppercase tracking-wider">Education</h2>
-                {data.education.map((edu, idx) => (
-                  <div key={edu.id || `edu-${idx}`} id={`canvas-${edu.id}`} className={`mb-3 prevent-break ${flashedId === edu.id ? 'flash-highlight' : ''}`}>
-                    <div className="flex justify-between text-sm font-semibold">
-                      <span>{edu.degree} {edu.school && `— ${edu.school}`}</span>
-                      <span>{edu.startDate} {edu.endDate ? `- ${edu.endDate}` : ""}</span>
-                    </div>
-                    {edu.location && <p className="text-xs text-gray-600 italic">{edu.location}</p>}
-                    <RenderDescription text={edu.description} />
-                  </div>
-                ))}
-              </section>
-            )}
-
-            {data.projects?.length > 0 && (
-              <section id="canvas-projects" className="mb-5 prevent-break">
-                <h2 className="text-sm font-bold border-b-2 border-black mb-2 uppercase tracking-wider">Projects</h2>
-                {data.projects.map((proj, idx) => (
-                  <div key={proj.id || `proj-${idx}`} id={`canvas-${proj.id}`} className={`mb-3 prevent-break ${flashedId === proj.id ? 'flash-highlight' : ''}`}>
-                    <div className="flex justify-between text-sm font-semibold">
-                      <span>{proj.name}</span>
-                      <span>{proj.startDate} {proj.endDate ? `- ${proj.endDate}` : ""}</span>
-                    </div>
-                    <RenderDescription text={proj.description} />
-                  </div>
-                ))}
-              </section>
-            )}
-
-            {(data.awards?.length > 0 || data.certifications?.length > 0) && (
-              <section className="mb-5 prevent-break">
-                <h2 className="text-sm font-bold border-b-2 border-black mb-2 uppercase tracking-wider">Awards & Certifications</h2>
-                {[...data.awards, ...data.certifications].map((item: any, idx) => (
-                  <div key={item.id || `ac-${idx}`} id={`canvas-${item.id}`} className={`mb-2 text-sm prevent-break ${flashedId === item.id ? 'flash-highlight' : ''}`}>
-                    <span className="font-semibold">{item.title}</span> — {item.awarder || item.issuer}
-                    <span className="text-gray-500 ml-2 text-xs">{item.date}</span>
-                    <RenderDescription text={item.description} />
-                  </div>
-                ))}
-              </section>
-            )}
-
-            <div className="grid grid-cols-2 gap-4 prevent-break">
-              {data.skills?.length > 0 && (
-                <section id="canvas-skills">
-                  <h2 className="text-sm font-bold border-b-2 border-black mb-2 uppercase tracking-wider">Skills</h2>
-                  <div className="flex flex-wrap gap-1 mt-1 text-sm">
-                    {data.skills.map((skill, idx) => (
-                      <div key={skill.id || `skill-${idx}`} id={`canvas-${skill.id}`} className={`bg-gray-100 text-gray-800 px-2 py-0.5 rounded text-xs font-medium prevent-break ${flashedId === skill.id ? 'flash-highlight' : ''}`}>
-                        {skill.name} {skill.proficiency && `(${skill.proficiency})`}
+            {/* Dynamic Rendering of Body Sections based on Drag/Drop order */}
+            {sectionOrder.map((sectionKey) => {
+              switch (sectionKey) {
+                case "summary":
+                  return data.summary?.content && (
+                    <section key={sectionKey} id="canvas-summary" className={`mb-5 prevent-break ${flashedId === 'summary' ? 'flash-highlight' : ''}`}>
+                      <h2 className="text-sm font-bold border-b-2 border-black mb-2 uppercase tracking-wider">Summary</h2>
+                      <p className="text-sm leading-relaxed text-gray-800">{data.summary.content}</p>
+                    </section>
+                  );
+                case "experience":
+                  return data.experience?.length > 0 && (
+                    <section key={sectionKey} id="canvas-experience" className="mb-5 prevent-break">
+                      <h2 className="text-sm font-bold border-b-2 border-black mb-2 uppercase tracking-wider">Experience</h2>
+                      {data.experience.map((exp: any, idx: number) => (
+                        <div key={exp.id || `exp-${idx}`} id={`canvas-${exp.id}`} className={`mb-3 prevent-break ${flashedId === exp.id ? 'flash-highlight' : ''}`}>
+                          <div className="flex justify-between text-sm font-semibold">
+                            <span>{exp.position} {exp.company && `— ${exp.company}`}</span>
+                            <span>{exp.startDate} {exp.endDate ? `- ${exp.endDate}` : ""}</span>
+                          </div>
+                          {exp.location && <p className="text-xs text-gray-600 italic">{exp.location}</p>}
+                          <RenderDescription text={exp.description} />
+                        </div>
+                      ))}
+                    </section>
+                  );
+                case "education":
+                  return data.education?.length > 0 && (
+                    <section key={sectionKey} id="canvas-education" className="mb-5 prevent-break">
+                      <h2 className="text-sm font-bold border-b-2 border-black mb-2 uppercase tracking-wider">Education</h2>
+                      {data.education.map((edu: any, idx: number) => (
+                        <div key={edu.id || `edu-${idx}`} id={`canvas-${edu.id}`} className={`mb-3 prevent-break ${flashedId === edu.id ? 'flash-highlight' : ''}`}>
+                          <div className="flex justify-between text-sm font-semibold">
+                            {/* Grade removed from here */}
+                            <span>{edu.degree} {edu.studyArea && `in ${edu.studyArea}`} {edu.school && `— ${edu.school}`}</span>
+                            <span>{edu.startDate} {edu.endDate ? `- ${edu.endDate}` : ""}</span>
+                          </div>
+                          
+                          {/* Grade moved down here! */}
+                          {edu.grade && <p className="text-xs text-gray-600 italic mt-0.5">Grade: {edu.grade}</p>}
+                          {edu.location && <p className="text-xs text-gray-600 italic mt-0.5">{edu.location}</p>}
+                          
+                          <RenderDescription text={edu.description} />
+                        </div>
+                      ))}
+                    </section>
+                  );
+                case "projects":
+                  return data.projects?.length > 0 && (
+                    <section key={sectionKey} id="canvas-projects" className="mb-5 prevent-break">
+                      <h2 className="text-sm font-bold border-b-2 border-black mb-2 uppercase tracking-wider">Projects</h2>
+                      {data.projects.map((proj: any, idx: number) => (
+                        <div key={proj.id || `proj-${idx}`} id={`canvas-${proj.id}`} className={`mb-3 prevent-break ${flashedId === proj.id ? 'flash-highlight' : ''}`}>
+                          <div className="flex justify-between text-sm font-semibold">
+                            <span>{proj.name}</span>
+                            <span>{proj.startDate} {proj.endDate ? `- ${proj.endDate}` : ""}</span>
+                          </div>
+                          <RenderDescription text={proj.description} />
+                        </div>
+                      ))}
+                    </section>
+                  );
+                case "skills":
+                  return data.skills?.length > 0 && (
+                    <section key={sectionKey} id="canvas-skills" className="mb-5 prevent-break">
+                      <h2 className="text-sm font-bold border-b-2 border-black mb-2 uppercase tracking-wider">Skills</h2>
+                      <div className="flex flex-wrap gap-1 mt-1 text-sm">
+                        {data.skills.map((skill: any, idx: number) => (
+                          <div key={skill.id || `skill-${idx}`} id={`canvas-${skill.id}`} className={`bg-gray-100 text-gray-800 px-2 py-0.5 rounded text-xs font-medium prevent-break ${flashedId === skill.id ? 'flash-highlight' : ''}`}>
+                            {skill.name} {skill.proficiency && `(${skill.proficiency})`}
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                </section>
-              )}
-              {data.languages?.length > 0 && (
-                <section id="canvas-languages">
-                  <h2 className="text-sm font-bold border-b-2 border-black mb-2 uppercase tracking-wider">Languages</h2>
-                  <div className="flex flex-wrap gap-1 mt-1 text-sm">
-                    {data.languages.map((lang, idx) => (
-                      <div key={lang.id || `lang-${idx}`} id={`canvas-${lang.id}`} className={`bg-gray-100 text-gray-800 px-2 py-0.5 rounded text-xs font-medium prevent-break ${flashedId === lang.id ? 'flash-highlight' : ''}`}>
-                        {lang.language} ({lang.fluency})
+                    </section>
+                  );
+                case "languages":
+                  return data.languages?.length > 0 && (
+                    <section key={sectionKey} id="canvas-languages" className="mb-5 prevent-break">
+                      <h2 className="text-sm font-bold border-b-2 border-black mb-2 uppercase tracking-wider">Languages</h2>
+                      <div className="flex flex-wrap gap-1 mt-1 text-sm">
+                        {data.languages.map((lang: any, idx: number) => (
+                          <div key={lang.id || `lang-${idx}`} id={`canvas-${lang.id}`} className={`bg-gray-100 text-gray-800 px-2 py-0.5 rounded text-xs font-medium prevent-break ${flashedId === lang.id ? 'flash-highlight' : ''}`}>
+                            {lang.language} ({lang.fluency})
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                </section>
-              )}
-              {data.interests?.length > 0 && (
-                <section id="canvas-interests">
-                  <h2 className="text-sm font-bold border-b-2 border-black mb-2 uppercase tracking-wider">Interests</h2>
-                  <div className="flex flex-wrap gap-1 mt-1 text-sm">
-                    {data.interests.map((interest, idx) => (
-                      <div key={interest.id || `int-${idx}`} id={`canvas-${interest.id}`} className={`bg-gray-100 text-gray-800 px-2 py-0.5 rounded text-xs font-medium ${flashedId === interest.id ? 'flash-highlight' : ''}`}>
-                        {interest.name}
+                    </section>
+                  );
+                case "interests":
+                  return data.interests?.length > 0 && (
+                    <section key={sectionKey} id="canvas-interests" className="mb-5 prevent-break">
+                      <h2 className="text-sm font-bold border-b-2 border-black mb-2 uppercase tracking-wider">Interests</h2>
+                      <div className="flex flex-wrap gap-1 mt-1 text-sm">
+                        {data.interests.map((interest: any, idx: number) => (
+                          <div key={interest.id || `int-${idx}`} id={`canvas-${interest.id}`} className={`bg-gray-100 text-gray-800 px-2 py-0.5 rounded text-xs font-medium ${flashedId === interest.id ? 'flash-highlight' : ''}`}>
+                            {interest.name}
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                </section>
-              )}
-            </div>
-
-            {data.publications?.length > 0 && (
-              <section id="canvas-publications" className="mb-5 prevent-break mt-4">
-                <h2 className="text-sm font-bold border-b-2 border-black mb-2 uppercase tracking-wider">Publications</h2>
-                {data.publications.map((pub, idx) => (
-                  <div key={pub.id || `pub-${idx}`} id={`canvas-${pub.id}`} className={`mb-3 ${flashedId === pub.id ? 'flash-highlight' : ''}`}>
-                    <div className="flex justify-between text-sm font-semibold">
-                      <span>{pub.title} {pub.publisher && `— ${pub.publisher}`}</span>
-                      <span>{pub.date}</span>
-                    </div>
-                    <RenderDescription text={pub.description} />
-                  </div>
-                ))}
-              </section>
-            )}
-
-            {data.volunteer?.length > 0 && (
-              <section id="canvas-volunteer" className="mb-5 prevent-break">
-                <h2 className="text-sm font-bold border-b-2 border-black mb-2 uppercase tracking-wider">Volunteer Experience</h2>
-                {data.volunteer.map((vol, idx) => (
-                  <div key={vol.id || `vol-${idx}`} id={`canvas-${vol.id}`} className={`mb-3 ${flashedId === vol.id ? 'flash-highlight' : ''}`}>
-                    <div className="flex justify-between text-sm font-semibold">
-                      <span>{vol.organization}</span>
-                      <span>{vol.startDate} {vol.endDate ? `- ${vol.endDate}` : ""}</span>
-                    </div>
-                    {vol.location && <p className="text-xs text-gray-600 italic">{vol.location}</p>}
-                    <RenderDescription text={vol.description} />
-                  </div>
-                ))}
-              </section>
-            )}
-
-            {data.references?.length > 0 && (
-              <section id="canvas-references" className="mb-5 prevent-break">
-                <h2 className="text-sm font-bold border-b-2 border-black mb-2 uppercase tracking-wider">References</h2>
-                <div className="grid grid-cols-2 gap-4 mt-2">
-                  {data.references.map((ref, idx) => (
-                    <div key={ref.id || `ref-${idx}`} id={`canvas-${ref.id}`} className={`text-sm ${flashedId === ref.id ? 'flash-highlight' : ''}`}>
-                      <div className="font-semibold">{ref.name}</div>
-                      {ref.position && <div className="text-gray-600 text-xs">{ref.position}</div>}
-                      {ref.phone && <div className="text-gray-800 text-xs">{ref.phone}</div>}
-                      {ref.description && <div className="text-gray-500 text-xs italic mt-1">{ref.description}</div>}
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
+                    </section>
+                  );
+                case "awards":
+                  return data.awards?.length > 0 && (
+                    <section key={sectionKey} id="canvas-awards" className="mb-5 prevent-break">
+                      <h2 className="text-sm font-bold border-b-2 border-black mb-2 uppercase tracking-wider">Awards</h2>
+                      {data.awards.map((award: any, idx: number) => (
+                        <div key={award.id || `awd-${idx}`} id={`canvas-${award.id}`} className={`mb-2 text-sm prevent-break ${flashedId === award.id ? 'flash-highlight' : ''}`}>
+                          <span className="font-semibold">{award.title}</span> — {award.awarder}
+                          <span className="text-gray-500 ml-2 text-xs">{award.date}</span>
+                          <RenderDescription text={award.description} />
+                        </div>
+                      ))}
+                    </section>
+                  );
+                case "certifications":
+                  return data.certifications?.length > 0 && (
+                    <section key={sectionKey} id="canvas-certifications" className="mb-5 prevent-break">
+                      <h2 className="text-sm font-bold border-b-2 border-black mb-2 uppercase tracking-wider">Certifications</h2>
+                      {data.certifications.map((cert: any, idx: number) => (
+                        <div key={cert.id || `cert-${idx}`} id={`canvas-${cert.id}`} className={`mb-2 text-sm prevent-break ${flashedId === cert.id ? 'flash-highlight' : ''}`}>
+                          <span className="font-semibold">{cert.title}</span> — {cert.issuer}
+                          <span className="text-gray-500 ml-2 text-xs">{cert.date}</span>
+                          <RenderDescription text={cert.description} />
+                        </div>
+                      ))}
+                    </section>
+                  );
+                case "publications":
+                  return data.publications?.length > 0 && (
+                    <section key={sectionKey} id="canvas-publications" className="mb-5 prevent-break mt-4">
+                      <h2 className="text-sm font-bold border-b-2 border-black mb-2 uppercase tracking-wider">Publications</h2>
+                      {data.publications.map((pub: any, idx: number) => (
+                        <div key={pub.id || `pub-${idx}`} id={`canvas-${pub.id}`} className={`mb-3 ${flashedId === pub.id ? 'flash-highlight' : ''}`}>
+                          <div className="flex justify-between text-sm font-semibold">
+                            <span>{pub.title} {pub.publisher && `— ${pub.publisher}`}</span>
+                            <span>{pub.date}</span>
+                          </div>
+                          <RenderDescription text={pub.description} />
+                        </div>
+                      ))}
+                    </section>
+                  );
+                case "volunteer":
+                  return data.volunteer?.length > 0 && (
+                    <section key={sectionKey} id="canvas-volunteer" className="mb-5 prevent-break">
+                      <h2 className="text-sm font-bold border-b-2 border-black mb-2 uppercase tracking-wider">Volunteer Experience</h2>
+                      {data.volunteer.map((vol: any, idx: number) => (
+                        <div key={vol.id || `vol-${idx}`} id={`canvas-${vol.id}`} className={`mb-3 ${flashedId === vol.id ? 'flash-highlight' : ''}`}>
+                          <div className="flex justify-between text-sm font-semibold">
+                            <span>{vol.organization}</span>
+                            <span>{vol.startDate} {vol.endDate ? `- ${vol.endDate}` : ""}</span>
+                          </div>
+                          {vol.location && <p className="text-xs text-gray-600 italic">{vol.location}</p>}
+                          <RenderDescription text={vol.description} />
+                        </div>
+                      ))}
+                    </section>
+                  );
+                case "references":
+                  return data.references?.length > 0 && (
+                    <section key={sectionKey} id="canvas-references" className="mb-5 prevent-break">
+                      <h2 className="text-sm font-bold border-b-2 border-black mb-3 uppercase tracking-wider">References</h2>
+                      <div className="grid grid-cols-2 gap-6 mt-2">
+                        {data.references.map((ref: any, idx: number) => (
+                          <div key={ref.id || `ref-${idx}`} id={`canvas-${ref.id}`} className={`text-sm ${flashedId === ref.id ? 'flash-highlight' : ''}`}>
+                            <div className="font-bold text-gray-900">{ref.name}</div>
+                            
+                            {(ref.position || ref.company) && (
+                              <div className="text-gray-700 font-medium text-xs mt-0.5">
+                                {ref.position} {ref.company && `— ${ref.company}`}
+                              </div>
+                            )}
+                            
+                            <div className="text-gray-600 text-xs mt-1 space-y-0.5">
+                              {ref.phone && <div>{ref.phone}</div>}
+                              {ref.email && (
+                                <div>
+                                  <a href={`mailto:${ref.email}`} className="text-blue-700 hover:underline">{ref.email}</a>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  );
+                default:
+                  return null;
+              }
+            })}
           </div>
         </main>
 
-        {/* RIGHT COLUMN: AI Counsel */}
-        <aside className="w-[380px] border-l border-stone-800/80 bg-stone-950 flex flex-col z-10 shadow-[-4px_0_24px_-10px_rgba(0,0,0,0.5)]">
+        {/* RIGHT COLUMN: AI Counsel & Structure */}
+        <aside className="w-[380px] border-l border-stone-800/80 bg-stone-950 flex flex-col z-10 shadow-[-4px_0_24px_-10px_rgba(0,0,0,0.5)] print:hidden">
           <div className="p-5 border-b border-stone-800/80 bg-stone-950">
             <h2 className="text-xl font-serif text-amber-500 tracking-wide flex items-center gap-3">
               <Sparkles className="w-5 h-5 text-amber-600" />
@@ -644,9 +786,48 @@ export default function EditorWorkspace() {
           </div>
           
           <div className="flex-1 overflow-y-auto p-5 space-y-8 custom-scrollbar">
-            
-            {/* OPTIMIZE SECTION */}
+
+            {/* PARCHMENT STYLES */}
             <div>
+              <h3 className="text-xs text-amber-600/70 font-serif uppercase tracking-widest mb-3">Parchment Style</h3>
+              <div className="grid grid-cols-3 gap-2">
+                {["onyx", "classic", "executive"].map((tpl) => (
+                  <button
+                    key={tpl}
+                    onClick={() => setTemplate(tpl)}
+                    className={`h-16 rounded-sm border transition flex flex-col items-center justify-center gap-1 text-[10px] font-serif uppercase tracking-widest ${template === tpl ? 'bg-stone-900 border-amber-500 text-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.2)]' : 'bg-stone-950 border-stone-800 text-stone-500 hover:border-amber-700/50 hover:text-stone-300'}`}
+                  >
+                    {tpl}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            
+            {/* MANUSCRIPT STRUCTURE (DRAG & DROP) */}
+            <div>
+              <h3 className="text-xs text-amber-600/70 font-serif uppercase tracking-widest mb-2">Manuscript Structure</h3>
+              <p className="text-xs text-stone-400 mb-3 font-serif italic">Drag to reorder the chapters of your scroll.</p>
+              <div className="space-y-1.5">
+                {sectionOrder.map((sectionKey, index) => (
+                  <div
+                    key={sectionKey}
+                    draggable
+                    onDragStart={(e) => handleDragStart(e, index)}
+                    onDragEnter={() => handleDragEnter(index)}
+                    onDragEnd={handleDragEnd}
+                    onDragOver={(e) => e.preventDefault()}
+                    className={`flex items-center gap-3 bg-stone-900 border border-stone-800 p-2.5 rounded-sm cursor-grab active:cursor-grabbing transition-all ${draggedIdx === index ? "opacity-40 border-dashed border-amber-700/50" : "hover:border-amber-700/50"}`}
+                  >
+                    <GripVertical className="w-4 h-4 text-stone-600" />
+                    <span className="text-xs text-stone-300 font-serif tracking-wide capitalize">{sectionKey}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* OPTIMIZE SECTION */}
+            <div className="border-t border-stone-800/80 pt-6">
               <h3 className="text-xs text-amber-600/70 font-serif uppercase tracking-widest mb-2 flex items-center gap-2">Phase 1 & 2: Optimize</h3>
               <p className="text-xs text-stone-400 mb-4 font-serif italic">Shorten redundancies and optimize keywords for readability.</p>
               <button onClick={handleRunOptimization} disabled={isOptimizing} className={`w-full py-3.5 rounded-sm text-xs font-serif tracking-widest uppercase transition-all flex items-center justify-center gap-2 group relative overflow-hidden shadow-inner ${isOptimizing ? "bg-stone-900 border border-stone-800 text-stone-500 cursor-not-allowed" : "bg-stone-900 border border-amber-900/50 hover:border-amber-500/80 text-amber-500 hover:shadow-[0_0_15px_rgba(245,158,11,0.1)]"}`}>

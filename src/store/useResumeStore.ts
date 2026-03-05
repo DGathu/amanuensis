@@ -35,6 +35,10 @@ interface ResumeState {
   resetToBlank: () => void;
   isEditing: boolean;
   setIsEditing: (val: boolean) => void;
+  sectionOrder: string[];
+  setSectionOrder: (order: string[]) => void;
+  template: string;
+  setTemplate: (template: string) => void;
   
   // Direct edits
   updatePersonalInfo: (info: Partial<PersonalInfo>) => void;
@@ -61,6 +65,10 @@ export const useResumeStore = create<ResumeState>((set) => ({
   setDbId: (id) => set({ dbId: id }),
   documentTitle: "Untitled Document",
   setDocumentTitle: (title) => set({ documentTitle: title }),
+  sectionOrder: ["summary", "experience", "education", "projects", "skills", "languages", "interests", "awards", "certifications", "publications", "volunteer", "references"],
+  setSectionOrder: (order) => set({ sectionOrder: order }),
+  template: "onyx",
+  setTemplate: (template) => set({ template }),
   
   flashedId: null,
   triggerFlash: (id) => {

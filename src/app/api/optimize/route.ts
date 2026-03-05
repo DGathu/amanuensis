@@ -9,7 +9,6 @@ const openai = new OpenAI({
 });
 
 function extractJSON(text: string) {
-  // 1. Strip out Qwen/DeepSeek <think> blocks entirely
   let cleanText = text.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
 
   try { 
@@ -29,9 +28,6 @@ function extractJSON(text: string) {
       
       // 🔧 AI Hallucination Fix: Remove illegal trailing commas right before brackets
       jsonString = jsonString.replace(/,\s*([\]}])/g, '$1');
-      
-      // 🔧 AI Hallucination Fix: Attempt to fix unescaped internal quotes (basic pass)
-      // This is a complex regex that tries to escape quotes inside values, but leaves structural quotes alone.
       jsonString = jsonString.replace(/(?<=:\s*)"(.*?)"(?=\s*[,}])/g, (match, innerText) => {
         return '"' + innerText.replace(/"/g, '\\"') + '"';
       });
@@ -43,7 +39,6 @@ function extractJSON(text: string) {
 }
 
 async function fetchWithFallback(prompt: string) {
-  // Your selected Qwen lineup
   const fallbackModels = [
     "qwen/qwen3-vl-30b-a3b-thinking",
     "qwen/qwen3-vl-235b-a22b-thinking",

@@ -4,14 +4,34 @@ import React, { useState, useRef } from "react";
 import { ScrollText, Loader2 } from "lucide-react";
 import { useResumeStore } from "@/store/useResumeStore";
 import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react"; // <-- NextAuth hooks
 
-export default function ResumeUploader() {
+// NEW: Accept a prop to trigger the modal
+interface ResumeUploaderProps {
+  onRequireAuth?: () => void;
+}
+
+export default function ResumeUploader({ onRequireAuth }: ResumeUploaderProps) {
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
-  // Cleaned up destructuring
   const { setResumeData, setIsEditing, setDocumentTitle, setDbId } = useResumeStore();
   const router = useRouter();
+  
+  // NEXT-AUTH STATE
+  const { status } = useSession();
+  const isSignedIn = status === "authenticated";
+
+  // Intercept the click before the file browser opens
+  const handleButtonClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (!isSignedIn) {
+      // PROPER FIX: Call the prop function to open the modal!
+      if (onRequireAuth) onRequireAuth();
+      return;
+    }
+    fileInputRef.current?.click();
+  };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -34,8 +54,7 @@ export default function ResumeUploader() {
       const parsedData = await response.json();
       const fileName = file.name.replace(/\.[^/.]+$/, "");
       
-      // Clean, single-pass state update
-      setDbId(null); // Ensure the app knows this is a brand new upload, not an overwrite
+      setDbId(null); 
       setDocumentTitle(fileName);
       setResumeData(parsedData);
       setIsEditing(true);
@@ -54,7 +73,6 @@ export default function ResumeUploader() {
   };
 
   return (
-    // Removed the "mb-4" div wrapper to ensure perfect baseline alignment with its twin button
     <>
       <input
         type="file"
@@ -65,7 +83,7 @@ export default function ResumeUploader() {
       />
       
       <button
-        onClick={() => fileInputRef.current?.click()}
+        onClick={handleButtonClick}
         disabled={isUploading}
         className={`w-full sm:w-auto flex items-center justify-center gap-3 px-8 h-12 rounded-sm text-sm font-serif tracking-wider uppercase transition shadow-inner whitespace-nowrap ${
           isUploading

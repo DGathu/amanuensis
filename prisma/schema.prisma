@@ -10,6 +10,7 @@ datasource db {
 
 model Resume {
   id        String   @id @default(uuid())
+  userId    String
   title     String   @default("Untitled Document")
   data      String   
   createdAt DateTime @default(now())
