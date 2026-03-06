@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  amanuensis:
+    build: .
+    container_name: amanuensis
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./amanuensis_data:/app/data
+      
+    # NEW: This tells Docker to pull all your secret keys straight from your .env file!
+    env_file:
+      - .env
+      
+    environment:
+      # We leave these here to override the .env file just for the Docker environment
+      - DATABASE_URL=file:/app/data/dev.db
+      - NEXTAUTH_URL=http://192.168.7.107:3000
