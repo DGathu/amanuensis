@@ -47,7 +47,7 @@ const ARRAY_SECTIONS = [
   { key: "experience", label: "Experience", getTitle: (i: any) => i.position || "Untitled Position", getSubtitle: (i: any) => i.company || "Company", getBlank: () => ({ id: generateId(), company: "New Company", position: "Job Title", location: "Nairobi", startDate: "", endDate: "", description: "", website: "" }) },
   { key: "education", label: "Education", getTitle: (i: any) => i.degree || "Degree", getSubtitle: (i: any) => i.school || "School", getBlank: () => ({ id: generateId(), school: "University Name", degree: "Degree", studyArea: "", grade: "", location: "", startDate: "", endDate: "", website: "", description: "" }) },
   { key: "projects", label: "Projects", getTitle: (i: any) => i.name || "Untitled Project", getSubtitle: (i: any) => i.website || "", getBlank: () => ({ id: generateId(), name: "New Project", startDate: "", endDate: "", website: "", description: "" }) },
-  { key: "skills", label: "Skills", getTitle: (i: any) => i.name || "New Skill", getSubtitle: (i: any) => i.proficiency || "", getBlank: () => ({ id: generateId(), name: "React", proficiency: "Advanced", keywords: [] }) },
+  { key: "skills", label: "Skills", getTitle: (i: any) => i.name || "New Skill", getSubtitle: (i: any) => i.proficiency || "", getBlank: () => ({ id: generateId(), name: "Network Fundamentals", proficiency: "", keywords: "" }) },
   { key: "languages", label: "Languages", getTitle: (i: any) => i.language || "New Language", getSubtitle: (i: any) => i.fluency || "", getBlank: () => ({ id: generateId(), language: "English", fluency: "Native" }) },
   { key: "interests", label: "Interests", getTitle: (i: any) => i.name || "New Interest", getSubtitle: (i: any) => "", getBlank: () => ({ id: generateId(), name: "Software Development", keywords: [] }) },
   { key: "awards", label: "Awards", getTitle: (i: any) => i.title || "New Award", getSubtitle: (i: any) => i.awarder || "", getBlank: () => ({ id: generateId(), title: "Award Title", awarder: "Issuer", date: "", website: "", description: "" }) },
@@ -466,10 +466,19 @@ export default function EditorWorkspace() {
 
                           {editingItemId === item.id && (
                             <div className="p-3 border-t border-stone-800 bg-stone-950 space-y-3">
-                              {Object.keys(item)
-                                .filter((key) => key !== "id" && typeof item[key] === "string")
+                              {/* FIX: We now use the blank template as the Master Schema so fields never disappear! */}
+                              {Object.keys(config.getBlank())
+                                .filter((key) => key !== "id")
                                 .map((key) => {
-                                  const isTextArea = key === "description" || key === "content";
+                                  // Make keywords a textarea so you have plenty of room to type grouped skills
+                                  const isTextArea = key === "description" || key === "content" || key === "keywords";
+                                  
+                                  // FIX: Safely extract the value, converting old legacy arrays into strings instantly
+                                  const rawValue = item[key];
+                                  const val = rawValue !== undefined && rawValue !== null 
+                                    ? (Array.isArray(rawValue) ? rawValue.join(", ") : String(rawValue)) 
+                                    : "";
+
                                   return (
                                     <div key={key}>
                                       <label className="text-[10px] text-amber-600/70 font-serif uppercase tracking-widest mb-1.5 ml-0.5 block">
@@ -477,15 +486,15 @@ export default function EditorWorkspace() {
                                       </label>
                                       {isTextArea ? (
                                         <textarea
-                                          rows={4}
-                                          value={item[key]}
+                                          rows={key === "keywords" ? 2 : 4}
+                                          value={val}
                                           onChange={(e) => updateItem(config.key as any, item.id, { [key]: e.target.value })}
                                           className={`${thematicInputClass} resize-none text-xs`}
                                         />
                                       ) : (
                                         <input
                                           type="text"
-                                          value={item[key]}
+                                          value={val}
                                           onChange={(e) => updateItem(config.key as any, item.id, { [key]: e.target.value })}
                                           className={`${thematicInputClass} text-xs`}
                                         />
@@ -644,19 +653,42 @@ export default function EditorWorkspace() {
                       ))}
                     </section>
                   );
-                case "skills":
-                  return data.skills?.length > 0 && (
+               case "skills": {
+                  if (!data.skills || data.skills.length === 0) return null;
+                  
+                  // Safely convert legacy arrays to strings before checking
+                  const groupedSkills = data.skills.filter((s: any) => safeRender(s.keywords).trim().length > 0);
+                  const singleSkills = data.skills.filter((s: any) => safeRender(s.keywords).trim().length === 0);
+
+                  return (
                     <section key={sectionKey} id="canvas-skills" className="mb-5 prevent-break">
                       <h2 className="text-sm font-bold border-b-2 border-black mb-2 uppercase tracking-wider">Skills</h2>
-                      <div className="flex flex-wrap gap-1 mt-1 text-sm">
-                        {data.skills.map((skill: any, idx: number) => (
-                          <div key={skill.id || `skill-${idx}`} id={`canvas-${skill.id}`} className={`bg-gray-100 text-gray-800 px-2 py-0.5 rounded text-xs font-medium prevent-break ${flashedId === skill.id ? 'flash-highlight' : ''}`}>
-                            {skill.name} {skill.proficiency && `(${skill.proficiency})`}
+                      
+                      {/* Grouped Skills (Line by Line) */}
+                      <div className="flex flex-col gap-1 mt-1 text-sm">
+                        {groupedSkills.map((skill: any, idx: number) => (
+                          <div key={skill.id || `g-skill-${idx}`} id={`canvas-${skill.id}`} className={`w-full prevent-break ${flashedId === skill.id ? 'flash-highlight' : ''}`}>
+                            <span className="font-bold text-gray-900">{skill.name}</span>
+                            {skill.proficiency && <span className="italic text-gray-600 ml-1">({skill.proficiency})</span>}
+                            <span className="font-bold text-gray-900">: </span>
+                            <span className="text-gray-800 leading-relaxed">{safeRender(skill.keywords)}</span>
                           </div>
                         ))}
                       </div>
+
+                      {/* Single Skills (Floating Tags) */}
+                      {singleSkills.length > 0 && (
+                        <div className={`flex flex-wrap gap-1 mt-2 text-sm`}>
+                          {singleSkills.map((skill: any, idx: number) => (
+                            <div key={skill.id || `s-skill-${idx}`} id={`canvas-${skill.id}`} className={`bg-gray-100 text-gray-800 px-2 py-0.5 rounded text-xs font-medium prevent-break ${flashedId === skill.id ? 'flash-highlight' : ''}`}>
+                              {skill.name} {skill.proficiency && `(${skill.proficiency})`}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </section>
                   );
+                }
                 case "languages":
                   return data.languages?.length > 0 && (
                     <section key={sectionKey} id="canvas-languages" className="mb-5 prevent-break">

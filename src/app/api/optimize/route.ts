@@ -105,7 +105,7 @@ REQUIRED JSON OUTPUT:
     {
       "section": "String: exact section key (e.g., 'experience', 'projects', 'summary')",
       "itemId": "String: the exact 'id' from the provided JSON item (leave empty for summary)",
-      "field": "String: the specific field to change (e.g., 'description', 'content')",
+      "field": "String: the specific field to change (e.g., 'description', 'content', 'keywords')",
       "oldText": "String: the original text from the resume",
       "newText": "String: your highly optimized suggested text",
       "reasoning": "String: brief explanation of why this change improves ATS or impact"

@@ -33,6 +33,11 @@ const getStyles = (template: string) => {
     gridItem: { fontSize: 10, color: '#374151', width: '45%', marginBottom: 4 }
   });
 };
+const safeString = (val: any): string => {
+  if (!val) return "";
+  if (Array.isArray(val)) return val.join(", ");
+  return String(val);
+};
 
 const Description = ({ text, styles }: { text?: string, styles: any }) => {
   if (!text) return null;
@@ -167,15 +172,39 @@ export default function ResumePDF({ data, sectionOrder, template = 'onyx' }: { d
                 </View>
               );
 
-            case "skills":
-              return skills?.length > 0 && (
+            case "skills": {
+              if (!skills || skills.length === 0) return null;
+              
+              const groupedSkills = skills.filter((s: any) => safeString(s.keywords).trim().length > 0);
+              const singleSkills = skills.filter((s: any) => safeString(s.keywords).trim().length === 0);
+
+              return (
                 <View key={sectionKey} style={styles.section} wrap={false}>
                   <Text style={styles.sectionTitle}>Skills</Text>
-                  <Text style={styles.normalText}>
-                    {skills.map((s: any) => `${s.name}${s.proficiency ? ` (${s.proficiency})` : ''}`).join(' • ')}
-                  </Text>
+                  
+                  {/* Grouped Skills */}
+                  {groupedSkills.map((s: any, idx: number) => (
+                    <View key={`grouped-${idx}`} style={{ flexDirection: 'row', marginBottom: 3 }}>
+                      <Text style={styles.itemTitle}>
+                        {s.name}{s.proficiency ? ` (${s.proficiency})` : ''}:{' '}
+                      </Text>
+                      <Text style={[styles.normalText, { flex: 1 }]}>
+                        {safeString(s.keywords)}
+                      </Text>
+                    </View>
+                  ))}
+
+                  {/* Inline/Single Skills */}
+                  {singleSkills.length > 0 && (
+                    <View style={{ marginTop: groupedSkills.length > 0 ? 3 : 0, flexDirection: 'row', flexWrap: 'wrap' }}>
+                      <Text style={styles.normalText}>
+                        {singleSkills.map((s: any) => `${s.name}${s.proficiency ? ` (${s.proficiency})` : ''}`).join('  •  ')}
+                      </Text>
+                    </View>
+                  )}
                 </View>
               );
+            }
 
             case "languages":
               return languages?.length > 0 && (
