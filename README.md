@@ -25,28 +25,27 @@ The Amanuensis is a self-hosted, AI-powered resume builder designed to forge ATS
 To spin up the Amanuensis on your local network, you will need [Docker](https://www.docker.com/) installed.
 
 ### 1. Clone the Archives
-\`\`\`bash
-git clone https://github.com/Dgathu/amanuensis.git
+```bash
+git clone [https://github.com/yourusername/amanuensis.git](https://github.com/yourusername/amanuensis.git)
 cd amanuensis
-\`\`\`
+```
 
 ### 2. Configure the Vault Keys
 Create a `.env` file in the root directory and provide your OpenRouter API key and preferred security credentials:
-
-\`\`\`env
+```env
 # AI Provider
 OPENROUTER_API_KEY=sk-or-v1-your-key-here
 
 # Security
 ADMIN_PASSWORD=your_secure_password
 NEXTAUTH_SECRET=generate_a_random_string_here
-\`\`\`
+```
 
 ### 3. Ignite the Forge
 Run the Docker Compose command to build the image, install the Linux binaries, and spin up the container:
-\`\`\`bash
+```bash
 docker-compose up -d --build
-\`\`\`
+```
 
 The Scribe is now awake. Visit `http://localhost:3000` to begin drafting your parchment.
 
