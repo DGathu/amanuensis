@@ -32,6 +32,7 @@ cd amanuensis
 
 ### 2. Configure the Vault Keys
 Create a `.env` file in the root directory and provide your OpenRouter API key and preferred security credentials:
+
 \`\`\`env
 # AI Provider
 OPENROUTER_API_KEY=sk-or-v1-your-key-here
