@@ -6,6 +6,7 @@ import { useResumeStore } from "@/store/useResumeStore";
 import { ScrollText, Feather, Flame, Plus, Loader2, AlertTriangle, ShieldAlert, LogOut, Key } from "lucide-react";
 import ResumeUploader from "@/components/ResumeUploader"; 
 import { useSession, signIn, signOut } from "next-auth/react";
+import { fetchDispatchBoardJobs } from "./actions";
 
 type ModalConfig = {
   isOpen: boolean;
@@ -144,6 +145,16 @@ export default function Dashboard() {
       setIsDeleting(null);
     }
   };
+  const [jobs, setJobs] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  useEffect(() => {
+    async function loadJobs() {
+      const fetchedJobs = await fetchDispatchBoardJobs();
+      setJobs(fetchedJobs);
+      setIsLoading(false);
+    }
+    loadJobs();
+  }, []);
 
   return (
     <div className="min-h-screen bg-stone-950 text-stone-300 selection:bg-amber-900/50 relative overflow-hidden">
@@ -326,7 +337,69 @@ export default function Dashboard() {
               </p>
             </div>
           </div>
-          {/* ---------------------------------------------- */}
+          {/* --- DYNAMIC DISPATCH BOARD --- */}
+            {/* CHANGED: Swapped 'grid' for a horizontally scrolling flex container with snapping */}
+            <div className="flex overflow-x-auto gap-4 pb-6 snap-x snap-mandatory scroll-smooth" style={{ scrollbarWidth: 'thin' }}>
+              {isLoading ? (
+                <div className="w-full text-center py-10 border border-stone-800/50 rounded-sm bg-stone-900/20">
+                  <p className="text-stone-500 font-serif animate-pulse">Consulting the Vault...</p>
+                </div>
+              ) : jobs.length === 0 ? (
+                <div className="w-full text-center py-10 border border-stone-800/50 rounded-sm bg-stone-900/20">
+                  <p className="text-stone-500 font-serif italic">The couriers have not returned with any quests yet.</p>
+                </div>
+              ) : (
+                jobs.map((job) => {
+                  const isDraft = job.status === "DRAFT";
+                  const isApplied = job.status === "APPLIED";
+                  const isInReview = job.status === "IN_REVIEW";
+
+                  return (
+                    // CHANGED: Added w-80 (fixed width), shrink-0 (prevents squashing), and snap-start
+                    <div 
+                      key={job.id} 
+                      className={`w-80 shrink-0 snap-start bg-stone-900/40 border ${isDraft ? 'border-stone-800 hover:border-amber-700/50 shadow-inner' : 'border-stone-800/50 opacity-80'} rounded-sm p-4 relative transition flex flex-col`}
+                    >
+                      <div className="flex justify-between items-start mb-2">
+                        {/* Dynamic Status Pill */}
+                        <span className={`text-[10px] font-serif uppercase tracking-widest px-2 py-0.5 rounded-sm font-bold ${
+                          isDraft ? 'text-stone-950 bg-amber-500' : 
+                          isApplied ? 'text-emerald-500 border border-emerald-900/50 bg-emerald-950/30' : 
+                          'text-blue-400 border border-blue-900/50 bg-blue-950/30'
+                        }`}>
+                          {job.status.replace("_", " ")}
+                        </span>
+                        <span className="text-xs text-stone-500 font-serif italic truncate max-w-[100px] text-right">
+                          {job.source}
+                        </span>
+                      </div>
+                      
+                      <h3 className="text-sm font-bold text-stone-200 mt-1 line-clamp-1" title={job.role}>{job.role}</h3>
+                      <p className="text-xs text-stone-400 mt-0.5 line-clamp-1">{job.company}</p>
+                      
+                      <div className="mt-4 pt-3 border-t border-stone-800/80 flex-1">
+                        <p className="text-[12px] text-stone-500 leading-relaxed font-serif italic line-clamp-3 break-all">
+                          {job.jdSummary || "Awaiting AI Tailoring..."}
+                        </p>
+                      </div>
+                      
+                      {/* Only show actionable items if it's a DRAFT */}
+                      {isDraft && (
+                        <div className="mt-4 flex justify-between items-center">
+                          {/* DYNAMIC SCORE COLORING */}
+                          <span className={`text-[15px] font-serif ${job.matchScore && job.matchScore > 75 ? 'text-emerald-500 font-bold' : job.matchScore && job.matchScore > 50 ? 'text-amber-500' : 'text-stone-600'}`}>
+                            {job.matchScore ? `${job.matchScore}% Match` : 'Unscored'}
+                          </span>
+                          <button className="text-[10px] font-serif uppercase tracking-widest text-amber-500 hover:text-amber-400 transition underline underline-offset-4">
+                            Prepare Scroll
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
         </header>
 
         <div className="flex items-center justify-center gap-4 opacity-50">
