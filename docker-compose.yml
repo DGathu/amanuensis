@@ -10,11 +10,12 @@ services:
     volumes:
       - ./amanuensis_data:/app/data
       
-    # NEW: This tells Docker to pull all your secret keys straight from your .env file!
+    # This pulls all secrets from the user's local .env file
     env_file:
       - .env
       
     environment:
-      # We leave these here to override the .env file just for the Docker environment
+      # Keep the database path hardcoded because it maps to the volume above
       - DATABASE_URL=file:/app/data/dev.db
-      - NEXTAUTH_URL=http://192.168.7.107:3000
+      # Use an environment variable for the URL, defaulting to localhost if not provided
+      - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3000}
