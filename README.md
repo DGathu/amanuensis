@@ -26,7 +26,7 @@ To spin up the Amanuensis on your local network, you will need [Docker](https://
 
 ### 1. Clone the Archives
 ```bash
-git clone [https://github.com/yourusername/amanuensis.git](https://github.com/yourusername/amanuensis.git)
+git clone [https://github.com/Dgathu/amanuensis.git](https://github.com/Dgathu/amanuensis.git)
 cd amanuensis
 ```
 
