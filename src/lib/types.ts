@@ -5,6 +5,10 @@ export type PersonalInfo = {
     phone: string;
     location: string;
     website: string;
+    links: Array<{
+        network: string;
+        url: string;
+    }>;
 };
 
 export type Summary = {

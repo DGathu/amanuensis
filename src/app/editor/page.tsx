@@ -5,7 +5,7 @@ import ResumePDF from "@/components/ResumePDF";
 import React, { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useResumeStore } from "@/store/useResumeStore";
-import { Plus, Trash2, X, Home, Loader2, Check, Save, AlertTriangle, Flame, Sparkles, Wand2, Download, GripVertical } from "lucide-react";
+import { Plus, Trash2, X, Home, Loader2, Check, Save, AlertTriangle, Flame, Sparkles, Wand2, Download, GripVertical, Linkedin, Github, Twitter, Globe, Mail, Phone, MapPin } from "lucide-react";
 
 type ModalConfig = {
   isOpen: boolean;
@@ -41,9 +41,30 @@ const safeRender = (val: any): string => {
 };
 
 const generateId = () => typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : Math.random().toString(36).substring(2, 15);
+const NetworkIcon = ({ network, className }: { network: string, className?: string }) => {
+  switch(network?.toLowerCase()) {
+    case "linkedin": return <Linkedin className={className} />;
+    case "github": return <Github className={className} />;
+    case "x": return <Twitter className={className} />; 
+    case "portfolio": return <Globe className={className} />;
+    case "email": return <Mail className={className} />;
+    case "phone": return <Phone className={className} />;
+    case "location": return <MapPin className={className} />;
+    default: return <Globe className={className} />;
+  }
+};
+
+// Strips domains to display just the username
+const formatLinkDisplay = (url: string, network: string) => {
+  if (!url) return network;
+  let clean = url.replace(/^https?:\/\/(www\.)?/, '');
+  if (network === 'LinkedIn') clean = clean.replace(/linkedin\.com\/in\//i, '');
+  if (network === 'GitHub') clean = clean.replace(/github\.com\//i, '');
+  if (network === 'X') clean = clean.replace(/(twitter\.com|x\.com)\//i, '');
+  return clean.replace(/\/$/, ''); // Remove trailing slashes
+};
 
 const ARRAY_SECTIONS = [
-  { key: "profiles", label: "Profiles", getTitle: (i: any) => i.network || "New Network", getSubtitle: (i: any) => i.username || "Username", getBlank: () => ({ id: generateId(), network: "LinkedIn", username: "", website: "" }) },
   { key: "experience", label: "Experience", getTitle: (i: any) => i.position || "Untitled Position", getSubtitle: (i: any) => i.company || "Company", getBlank: () => ({ id: generateId(), company: "New Company", position: "Job Title", location: "Nairobi", startDate: "", endDate: "", description: "", website: "" }) },
   { key: "education", label: "Education", getTitle: (i: any) => i.degree || "Degree", getSubtitle: (i: any) => i.school || "School", getBlank: () => ({ id: generateId(), school: "University Name", degree: "Degree", studyArea: "", grade: "", location: "", startDate: "", endDate: "", website: "", description: "" }) },
   { key: "projects", label: "Projects", getTitle: (i: any) => i.name || "Untitled Project", getSubtitle: (i: any) => i.website || "", getBlank: () => ({ id: generateId(), name: "New Project", startDate: "", endDate: "", website: "", description: "" }) },
@@ -87,6 +108,25 @@ export default function EditorWorkspace() {
 
   // Shared thematic input class
   const thematicInputClass = "w-full bg-stone-900/50 border border-stone-800 focus:border-amber-700/60 focus:ring-1 focus:ring-amber-700/30 text-stone-200 rounded-sm p-2.5 text-sm transition-all placeholder-stone-700 outline-none shadow-inner";
+
+  // --- DYNAMIC LINKS HELPERS ---
+  const AVAILABLE_NETWORKS = ["LinkedIn", "GitHub", "X", "Portfolio"];
+
+  const addLink = () => {
+    const currentLinks = data.personalInfo.links || [];
+    updatePersonalInfo({ links: [...currentLinks, { network: "LinkedIn", url: "", username: "" }] });
+  };
+
+  const updateLink = (index: number, field: "network" | "url", value: string) => {
+    const newLinks = [...(data.personalInfo.links || [])];
+    newLinks[index] = { ...newLinks[index], [field]: value };
+    updatePersonalInfo({ links: newLinks });
+  };
+
+  const removeLink = (indexToRemove: number) => {
+    const newLinks = (data.personalInfo.links || []).filter((_: any, i: number) => i !== indexToRemove);
+    updatePersonalInfo({ links: newLinks });
+  };
 
   useEffect(() => {
     if (!isEditing) router.push("/");
@@ -265,9 +305,9 @@ export default function EditorWorkspace() {
           console.error("Auto-save failed:", error);
           setSaveStatus("unsaved");
         }
-      }, 2500); // Waits 2.5 seconds after you stop typing
+      }, 2500);
 
-      return () => clearTimeout(timer); // Cancels the timer if you keep typing
+      return () => clearTimeout(timer); 
     }
   }, [currentStateString, lastSavedState, dbId, documentTitle, data, sectionOrder, template, setDbId]);
 
@@ -317,7 +357,6 @@ export default function EditorWorkspace() {
         <div className="flex items-center gap-4">
           <button 
             onClick={async () => {
-              // Force a save before leaving if unsaved
               if (saveStatus !== "saved") setSaveStatus("saving"); 
               router.push("/");
             }} 
@@ -336,7 +375,6 @@ export default function EditorWorkspace() {
               className="bg-transparent text-sm font-serif italic text-amber-500/80 hover:text-amber-400 focus:text-amber-500 focus:outline-none w-64 transition placeholder-stone-700"
               placeholder="Untitled Parchment"
             />
-            {/* NEW: Auto-save status indicator */}
             <span className="text-[10px] font-serif uppercase tracking-widest text-stone-500 flex items-center gap-1.5">
               {saveStatus === "saving" && <><Loader2 className="w-3 h-3 animate-spin text-amber-700" /> Scribe is writing...</>}
               {saveStatus === "unsaved" && <><div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" /> Unbound changes</>}
@@ -393,18 +431,75 @@ export default function EditorWorkspace() {
                 Personal Info
                 <span className="text-xs text-stone-500">{openSection === "PersonalInfo" ? "▼" : "☰"}</span>
               </button>
+              
               {openSection === "PersonalInfo" && (
-                <div className="p-4 border-t border-stone-800 space-y-3 bg-stone-950">
-                  <input type="text" placeholder="Full Name" value={data.personalInfo.fullName} onChange={(e) => updatePersonalInfo({ fullName: e.target.value })} className={thematicInputClass}/>
-                  <input type="text" placeholder="Job Title / Headline" value={data.personalInfo.headline} onChange={(e) => updatePersonalInfo({ headline: e.target.value })} className={thematicInputClass}/>
-                  <div className="grid grid-cols-2 gap-2">
-                    <input type="email" placeholder="Email" value={data.personalInfo.email} onChange={(e) => updatePersonalInfo({ email: e.target.value })} className={thematicInputClass}/>
-                    <input type="text" placeholder="Phone" value={data.personalInfo.phone} onChange={(e) => updatePersonalInfo({ phone: e.target.value })} className={thematicInputClass}/>
+                <div className="p-4 border-t border-stone-800 space-y-4 bg-stone-950">
+                  
+                  {/* Standard Fields */}
+                  <div className="space-y-3">
+                    <input type="text" placeholder="Full Name" value={data.personalInfo.fullName} onChange={(e) => updatePersonalInfo({ fullName: e.target.value })} className={thematicInputClass}/>
+                    <input type="text" placeholder="Job Title / Headline" value={data.personalInfo.headline} onChange={(e) => updatePersonalInfo({ headline: e.target.value })} className={thematicInputClass}/>
+                    <div className="grid grid-cols-2 gap-2">
+                      <input type="email" placeholder="Email" value={data.personalInfo.email} onChange={(e) => updatePersonalInfo({ email: e.target.value })} className={thematicInputClass}/>
+                      <input type="text" placeholder="Phone" value={data.personalInfo.phone} onChange={(e) => updatePersonalInfo({ phone: e.target.value })} className={thematicInputClass}/>
+                    </div>
+                    <input type="text" placeholder="Location (e.g., Remote / Nairobi)" value={data.personalInfo.location} onChange={(e) => updatePersonalInfo({ location: e.target.value })} className={thematicInputClass}/>
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <input type="text" placeholder="Location" value={data.personalInfo.location} onChange={(e) => updatePersonalInfo({ location: e.target.value })} className={thematicInputClass}/>
-                    <input type="text" placeholder="Website URL" value={data.personalInfo.website} onChange={(e) => updatePersonalInfo({ website: e.target.value })} className={thematicInputClass}/>
+
+                  {/* NEW: Dynamic Vector-Ready Links (Inside the Editor Sidebar) */}
+                  <div className="pt-4 border-t border-stone-800">
+                    <label className="block text-[10px] font-serif text-amber-600/70 mb-3 uppercase tracking-widest ml-0.5">Web Profiles</label>
+                    
+                    <div className="space-y-2">
+                      {(data.personalInfo.links || []).map((link: any, index: number) => (
+                        <div key={index} className="flex gap-2 items-center">
+                          <select
+                            value={link.network}
+                            onChange={(e) => updateLink(index, 'network', e.target.value)}
+                            className={`${thematicInputClass} w-[28%]`}
+                          >
+                            {AVAILABLE_NETWORKS.map(net => (
+                              <option key={net} value={net}>{net}</option>
+                            ))}
+                          </select>
+                          
+                          {/* NEW: The Username / Display Text Input */}
+                          <input
+                            type="text"
+                            placeholder="Display (@name)"
+                            value={link.username || ''}
+                            onChange={(e) => updateLink(index, 'username', e.target.value)}
+                            className={`${thematicInputClass} w-[30%]`}
+                          />
+
+                          {/* The URL Input */}
+                          <input
+                            type="url"
+                            placeholder="https://..."
+                            value={link.url}
+                            onChange={(e) => updateLink(index, 'url', e.target.value)}
+                            className={`${thematicInputClass} flex-1`}
+                          />
+                          
+                          <button 
+                            onClick={() => removeLink(index)} 
+                            className="p-2 text-stone-600 hover:text-red-500 transition"
+                            title="Remove Link"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+
+                    <button 
+                      onClick={addLink} 
+                      className="mt-3 py-1.5 w-full border border-dashed border-stone-800 hover:border-amber-600/60 text-stone-500 hover:text-amber-500 bg-stone-950/50 hover:bg-stone-900/50 rounded-sm text-xs font-serif tracking-widest uppercase transition-all flex justify-center items-center gap-2"
+                    >
+                      <Plus className="w-3 h-3" /> Add Profile
+                    </button>
                   </div>
+
                 </div>
               )}
             </div>
@@ -466,14 +561,10 @@ export default function EditorWorkspace() {
 
                           {editingItemId === item.id && (
                             <div className="p-3 border-t border-stone-800 bg-stone-950 space-y-3">
-                              {/* FIX: We now use the blank template as the Master Schema so fields never disappear! */}
                               {Object.keys(config.getBlank())
                                 .filter((key) => key !== "id")
                                 .map((key) => {
-                                  // Make keywords a textarea so you have plenty of room to type grouped skills
                                   const isTextArea = key === "description" || key === "content" || key === "keywords";
-                                  
-                                  // FIX: Safely extract the value, converting old legacy arrays into strings instantly
                                   const rawValue = item[key];
                                   const val = rawValue !== undefined && rawValue !== null 
                                     ? (Array.isArray(rawValue) ? rawValue.join(", ") : String(rawValue)) 
@@ -558,37 +649,48 @@ export default function EditorWorkspace() {
             style={{ width: "210mm", minHeight: "297mm", height: "max-content", padding: "20mm" }}
           >
             {/* Header is always pinned to top */}
-            <header id="canvas-personalinfo" className={`text-center mb-6 prevent-break ${flashedId === 'personalInfo' ? 'flash-highlight' : ''}`}>
+            <header id="canvas-personalinfo" className={`mb-6 prevent-break ${flashedId === 'personalInfo' ? 'flash-highlight' : ''} ${template === 'classic' ? 'text-center' : 'text-left'}`}>
               <h1 className="text-3xl font-bold uppercase tracking-wide">{data.personalInfo.fullName || "Your Name"}</h1>
               {data.personalInfo.headline && <h2 className="text-lg font-medium text-blue-700 mt-1 prevent-break">{data.personalInfo.headline}</h2>}
-              <p className="text-sm text-gray-600 mt-1 prevent-break">
-                {[data.personalInfo.email, data.personalInfo.phone, data.personalInfo.location].filter(Boolean).join(" • ")}
-              </p>
               
-              {/* Clickable Website */}
-              {data.personalInfo.website && (
-                <p className="text-xs mt-1 prevent-break">
-                  <a href={data.personalInfo.website} target="_blank" rel="noreferrer" className="text-blue-700 hover:underline">{data.personalInfo.website}</a>
-                </p>
-              )}
-              
-              {/* Clickable Profiles mapped to screen */}
-              {data.profiles?.length > 0 && (
-                <p className="text-xs text-gray-500 mt-1 prevent-break">
-                  {data.profiles.map((p: any, idx: number) => (
-                    <React.Fragment key={idx}>
-                      {p.website ? (
-                        <a href={p.website} target="_blank" rel="noreferrer" className="text-blue-700 hover:underline">
-                          {p.username || p.network}
-                        </a>
-                      ) : (
-                        p.username || p.network
-                      )}
-                      {idx < data.profiles.length - 1 ? " | " : ""}
-                    </React.Fragment>
-                  ))}
-                </p>
-              )}
+              {/* WYSIWYG Icon-Driven Contact Row */}
+              <div className={`flex flex-wrap gap-x-4 gap-y-1.5 mt-2.5 text-sm text-gray-600 prevent-break ${template === 'classic' ? 'justify-center' : 'justify-start'}`}>
+                
+                {data.personalInfo.email && (
+                  <div className="flex items-center gap-1.5">
+                    <NetworkIcon network="email" className="w-3.5 h-3.5" />
+                    <span>{data.personalInfo.email}</span>
+                  </div>
+                )}
+                
+                {data.personalInfo.phone && (
+                  <div className="flex items-center gap-1.5">
+                    <NetworkIcon network="phone" className="w-3.5 h-3.5" />
+                    <span>{data.personalInfo.phone}</span>
+                  </div>
+                )}
+                
+                {data.personalInfo.location && (
+                  <div className="flex items-center gap-1.5">
+                    <NetworkIcon network="location" className="w-3.5 h-3.5" />
+                    <span>{data.personalInfo.location}</span>
+                  </div>
+                )}
+
+                {(data.personalInfo.links || []).map((link: any, idx: number) => (
+                  <div key={idx} className="flex items-center gap-1.5">
+                    <NetworkIcon network={link.network} className="w-3.5 h-3.5" />
+                    {link.url ? (
+                      <a href={link.url} target="_blank" rel="noreferrer" className="text-blue-700 hover:underline font-medium">
+                        {/* NEW: Displays the custom username, falls back to Network Name if empty */}
+                        {link.username || link.network}
+                      </a>
+                    ) : (
+                      <span>{link.username || link.network}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
             </header>
 
             {/* Dynamic Rendering of Body Sections based on Drag/Drop order */}
@@ -624,12 +726,10 @@ export default function EditorWorkspace() {
                       {data.education.map((edu: any, idx: number) => (
                         <div key={edu.id || `edu-${idx}`} id={`canvas-${edu.id}`} className={`mb-3 prevent-break ${flashedId === edu.id ? 'flash-highlight' : ''}`}>
                           <div className="flex justify-between text-sm font-semibold">
-                            {/* Grade removed from here */}
                             <span>{edu.degree} {edu.studyArea && `in ${edu.studyArea}`} {edu.school && `— ${edu.school}`}</span>
                             <span>{edu.startDate} {edu.endDate ? `- ${edu.endDate}` : ""}</span>
                           </div>
                           
-                          {/* Grade moved down here! */}
                           {edu.grade && <p className="text-xs text-gray-600 italic mt-0.5">Grade: {edu.grade}</p>}
                           {edu.location && <p className="text-xs text-gray-600 italic mt-0.5">{edu.location}</p>}
                           
@@ -656,7 +756,6 @@ export default function EditorWorkspace() {
                case "skills": {
                   if (!data.skills || data.skills.length === 0) return null;
                   
-                  // Safely convert legacy arrays to strings before checking
                   const groupedSkills = data.skills.filter((s: any) => safeRender(s.keywords).trim().length > 0);
                   const singleSkills = data.skills.filter((s: any) => safeRender(s.keywords).trim().length === 0);
 
@@ -880,10 +979,10 @@ export default function EditorWorkspace() {
                     <h4 className="text-[10px] font-serif uppercase tracking-widest text-amber-500 bg-amber-900/20 px-2 py-0.5 rounded-sm inline-block mb-3">General Feedback</h4>
                     <p className="text-xs text-stone-300 leading-relaxed mb-4 font-serif">{safeRender(aiSuggestions.generalFeedback.summary)}</p>
                     <div className="space-y-2 text-xs font-serif italic">
-                      {aiSuggestions.generalFeedback.strengths?.map((str, i) => (
+                      {aiSuggestions.generalFeedback.strengths?.map((str: any, i: number) => (
                         <div key={i} className="text-emerald-500/90 flex gap-2"><Check className="w-3 h-3 shrink-0 mt-0.5"/> <span>{safeRender(str)}</span></div>
                       ))}
-                      {aiSuggestions.generalFeedback.fixes?.map((fix, i) => (
+                      {aiSuggestions.generalFeedback.fixes?.map((fix: any, i: number) => (
                         <div key={i} className="text-amber-500/90 flex gap-2"><X className="w-3 h-3 shrink-0 mt-0.5"/> <span>{safeRender(fix)}</span></div>
                       ))}
                     </div>
@@ -897,7 +996,7 @@ export default function EditorWorkspace() {
                     <div className="space-y-1 text-xs text-stone-400 font-serif italic">
                       <span className="font-semibold text-stone-300 not-italic">Key Priorities:</span>
                       <ul className="list-disc pl-4 mt-2 space-y-1">
-                        {aiSuggestions.matchStrategy.priorities?.map((priority, i) => (
+                        {aiSuggestions.matchStrategy.priorities?.map((priority: any, i: number) => (
                           <li key={i}>{safeRender(priority)}</li>
                         ))}
                       </ul>
@@ -909,7 +1008,7 @@ export default function EditorWorkspace() {
                   <div>
                     <h4 className="text-xs text-amber-600/70 font-serif uppercase tracking-widest mb-3 flex items-center gap-2">Suggested Edits</h4>
                     <div className="space-y-4">
-                      {aiSuggestions.suggestedRewrites.map((suggestion, index) => (
+                      {aiSuggestions.suggestedRewrites.map((suggestion: any, index: number) => (
                         <div key={index} className="bg-stone-900/80 border border-stone-800 border-l-2 border-l-amber-600 rounded-r-sm p-4 relative shadow-sm flex flex-col">
                           
                           <div className="flex justify-between items-start mb-3">

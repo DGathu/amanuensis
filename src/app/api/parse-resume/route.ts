@@ -5,8 +5,8 @@ import PDFParser from "pdf2json";
 export const runtime = "nodejs";
 
 const openai = new OpenAI({
-  baseURL: "https://openrouter.ai/api/v1",
-  apiKey: process.env.OPENROUTER_API_KEY,
+  baseURL: "https://api.groq.com/openai/v1",
+  apiKey: process.env.GROQ_API_KEY,
 });
 
 // --- BULLETPROOF JSON EXTRACTOR ---
@@ -84,33 +84,30 @@ async function extractTextFromPDF(buffer: Buffer): Promise<string> {
 }
 
 async function fetchWithFallback(prompt: string) {
-  // A list of the best free JSON-capable models on OpenRouter
   const fallbackModels = [
-    "qwen/qwen3-vl-30b-a3b-thinking",
-    "qwen/qwen3-vl-235b-a22b-thinking",
-    "qwen/qwen3-235b-a22b-thinking-2507"
+    "llama-3.3-70b-versatile", 
+    "mixtral-8x7b-32768",      
+    "llama-3.1-8b-instant"    
   ];
 
   for (const modelName of fallbackModels) {
     try {
-      console.log(`Attempting parse with ${modelName}...`);
+      console.log(`Attempting optimize with ${modelName}...`);
       const completion = await openai.chat.completions.create({
         model: modelName,
         messages: [{ role: "user", content: prompt }],
-        temperature: 0.1,
+        temperature: 0.3,
       });
-      return completion; // Success!
+      return completion; 
     } catch (error: any) {
-      // If it's a 429 (Rate Limit) or 529 (Overloaded), log it and loop to the next model
-      if (error?.status === 429 || error?.status === 529 || error?.status === 502) {
-        console.warn(`[429/Overload] ${modelName} is busy. Falling back to next model...`);
+      if (error?.status === 429 || error?.status >= 500) {
+        console.warn(`[Overload/Rate Limit] ${modelName} is busy. Trying next in line...`);
         continue;
       }
-      // If it's a different error (like a bad API key), throw it immediately
       throw error;
     }
   }
-  throw new Error("All free models are currently overloaded. Please try again later.");
+  throw new Error("All Groq models are currently overloaded or rate-limited. Please try again later.");
 }
 
 export async function POST(request: Request) {

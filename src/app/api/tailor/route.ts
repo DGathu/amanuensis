@@ -4,8 +4,8 @@ import OpenAI from "openai";
 export const runtime = "nodejs";
 
 const openai = new OpenAI({
-  baseURL: "https://openrouter.ai/api/v1",
-  apiKey: process.env.OPENROUTER_API_KEY,
+  baseURL: "https://api.groq.com/openai/v1",
+  apiKey: process.env.GROQ_API_KEY,
 });
 
 function extractJSON(text: string) {
@@ -44,14 +44,14 @@ function extractJSON(text: string) {
 
 async function fetchWithFallback(prompt: string) {
   const fallbackModels = [
-    "qwen/qwen3-vl-30b-a3b-thinking",
-    "qwen/qwen3-vl-235b-a22b-thinking",
-    "qwen/qwen3-235b-a22b-thinking-2507"
+    "llama-3.3-70b-versatile", 
+    "mixtral-8x7b-32768",      
+    "llama-3.1-8b-instant"    
   ];
 
   for (const modelName of fallbackModels) {
     try {
-      console.log(`Attempting tailor with ${modelName}...`);
+      console.log(`Attempting optimize with ${modelName}...`);
       const completion = await openai.chat.completions.create({
         model: modelName,
         messages: [{ role: "user", content: prompt }],
@@ -59,14 +59,14 @@ async function fetchWithFallback(prompt: string) {
       });
       return completion; 
     } catch (error: any) {
-      if (error?.status === 429 || error?.status === 529 || error?.status === 502) {
-        console.warn(`[Overload] ${modelName} is busy. Trying next...`);
+      if (error?.status === 429 || error?.status >= 500) {
+        console.warn(`[Overload/Rate Limit] ${modelName} is busy. Trying next in line...`);
         continue;
       }
       throw error;
     }
   }
-  throw new Error("All Qwen models are currently overloaded. Please try again later.");
+  throw new Error("All Groq models are currently overloaded or rate-limited. Please try again later.");
 }
 
 export async function POST(request: Request) {

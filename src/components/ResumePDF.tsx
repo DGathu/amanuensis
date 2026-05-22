@@ -1,5 +1,6 @@
 import React from 'react';
-import { Document, Page, Text, View, StyleSheet, Link } from '@react-pdf/renderer';
+import { Document, Page, Text, View, StyleSheet, Link, Svg, Path } from '@react-pdf/renderer';
+import { Icons, IconName } from '../lib/icons';
 
 // Dynamic Stylesheet Generator based on the Holy Trinity
 const getStyles = (template: string) => {
@@ -16,7 +17,7 @@ const getStyles = (template: string) => {
     name: { fontSize: 24, fontFamily: headerFont, textTransform: 'uppercase', marginBottom: 4 },
     headline: { fontSize: 12, color: '#1d4ed8', marginBottom: 4, fontFamily: headerFont },
     contact: { fontSize: 10, color: '#4b5563', marginBottom: 4 },
-    link: { color: '#1d4ed8', textDecoration: 'none' },
+    link: { fontSize: 10, color: '#1d4ed8', textDecoration: 'none' },
     section: { marginBottom: 15 },
     sectionTitle: { fontSize: 11, fontFamily: headerFont, borderBottomWidth: 1, borderBottomColor: '#000', paddingBottom: 2, marginBottom: 8, textTransform: 'uppercase' },
     item: { marginBottom: 8 },
@@ -30,7 +31,10 @@ const getStyles = (template: string) => {
     bullet: { width: 15, fontSize: 10, color: '#374151' },
     bulletText: { flex: 1, fontSize: 10, color: '#374151', lineHeight: 1.4 },
     flexGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-    gridItem: { fontSize: 10, color: '#374151', width: '45%', marginBottom: 4 }
+    gridItem: { fontSize: 10, color: '#374151', width: '45%', marginBottom: 4 },
+    contactRow: { flexDirection: 'row', justifyContent: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 10 },
+    contactItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+    icon: { width: 10, height: 10, color: '#4b5563' }
   });
 };
 const safeString = (val: any): string => {
@@ -39,10 +43,23 @@ const safeString = (val: any): string => {
   return String(val);
 };
 
-const Description = ({ text, styles }: { text?: string, styles: any }) => {
+const Description = ({ text, styles }: { text?: string | string[], styles: any }) => {
   if (!text) return null;
-  const lines = text.split('\n').filter(line => line.trim().length > 0);
   
+  // 1. Safely normalize the AI's output into an array of strings
+  let lines: string[] = [];
+  if (Array.isArray(text)) {
+    lines = text; // The AI gave us an array, use it directly
+  } else if (typeof text === 'string') {
+    lines = text.split('\n'); // The AI gave us a string, split it
+  } else {
+    lines = [String(text)]; // The AI went crazy and gave us a number/boolean, force it to a string
+  }
+  
+  // 2. Clean out empty lines
+  lines = lines.filter(line => line.trim().length > 0);
+  
+  // 3. Render logic
   if (lines.length === 1 && !/^[\-•*]/.test(lines[0])) {
     return <Text style={styles.normalText}>{lines[0]}</Text>;
   }
@@ -62,42 +79,66 @@ const Description = ({ text, styles }: { text?: string, styles: any }) => {
   );
 };
 
-export default function ResumePDF({ data, sectionOrder, template = 'onyx' }: { data: any, sectionOrder: string[], template?: string }) {
+const PDFIcon = ({ name, styles }: { name: IconName, styles: any }) => (
+  <Svg viewBox="0 0 24 24" style={styles.icon}>
+    <Path 
+      d={Icons[name]} 
+      fill="none" 
+      stroke="currentColor" 
+      strokeWidth="2" 
+      strokeLinecap="round" 
+      strokeLinejoin="round" 
+    />
+  </Svg>
+);
+
+export default function ResumePDF({ data, sectionOrder, template = 'classic' }: { data: any, sectionOrder: string[], template?: string }) {
   const styles = getStyles(template);
   const { personalInfo, summary, experience, education, projects, skills, languages, interests, awards, certifications, publications, volunteer, references, profiles } = data;
 
   return (
     <Document>
       <Page size="A4" style={styles.page}>
-        
-        {/* 1. HEADER (Pinned to Top) */}
         <View style={styles.header}>
-          <Text style={styles.name}>{personalInfo?.fullName || "Your Name"}</Text>
-          {personalInfo?.headline && <Text style={styles.headline}>{personalInfo.headline}</Text>}
-          <Text style={styles.contact}>
-            {[personalInfo?.email, personalInfo?.phone, personalInfo?.location].filter(Boolean).join(" • ")}
-          </Text>
-          {personalInfo?.website && (
-             <Link src={personalInfo.website} style={styles.link}>{personalInfo.website}</Link>
-          )}
+          <Text style={styles.name}>{personalInfo.fullName}</Text>
+          <Text style={styles.headline}>{personalInfo.headline}</Text>
           
-          {/* FIX: Profiles are now dynamically mapped and clickable if they have a website */}
-          {profiles?.length > 0 && (
-            <Text style={styles.contact}>
-              {profiles.map((p: any, idx: number) => (
-                <React.Fragment key={idx}>
-                  {p.website ? (
-                    <Link src={p.website} style={styles.link}>{p.username || p.network}</Link>
-                  ) : (
-                    p.username || p.network
-                  )}
-                  {idx < profiles.length - 1 ? " | " : ""}
-                </React.Fragment>
-              ))}
-            </Text>
-          )}
-        </View>
+          {/* THE NEW ICON-DRIVEN CONTACT ROW */}
+          <View style={styles.contactRow}>
+            {personalInfo.email && (
+              <View style={styles.contactItem}>
+                <PDFIcon name="Email" styles={styles} />
+                <Text style={styles.contact}>{personalInfo.email}</Text>
+              </View>
+            )}
+            
+            {personalInfo.phone && (
+              <View style={styles.contactItem}>
+                <PDFIcon name="Phone" styles={styles} />
+                <Text style={styles.contact}>{personalInfo.phone}</Text>
+              </View>
+            )}
+            
+            {personalInfo.location && (
+              <View style={styles.contactItem}>
+                <PDFIcon name="Location" styles={styles} />
+                <Text style={styles.contact}>{personalInfo.location}</Text>
+              </View>
+            )}
 
+            {/* Map through dynamic social links in ResumePDF.tsx */}
+            {personalInfo.links?.map((link: { network: IconName, url: string, username?: string }, index: number) => (
+              <View key={index} style={styles.contactItem}>
+                <PDFIcon name={link.network} styles={styles} />
+                <Link src={link.url} style={styles.link}>
+                  {/* NEW: Pulls the display name directly from your new input field! */}
+                  {link.username || link.network}
+                </Link>
+              </View>
+            ))}
+          </View>
+        </View>
+        
         {/* 2. DYNAMIC SECTIONS */}
         {sectionOrder.map((sectionKey) => {
           switch (sectionKey) {

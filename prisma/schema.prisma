@@ -21,11 +21,14 @@ model JobApplication {
   id          String   @id @default(cuid())
   company     String
   role        String
-  status      String   @default("DRAFT") 
+  status      String   @default("SCOUTED") 
   source      String?  
   jdSummary   String?  
   matchScore  Int?     
-  resumeId    String?  
+  resumeId    String?
+  coverLetterBody String? 
+  applicationType String   
+  applyUrl        String?  
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
